@@ -1,0 +1,51 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pkl
+*.joblib
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+lung/              
+
+# Jupyter notebooks
+.ipynb_checkpoints
+
+# Logs & temp files
+*.log
+*.DS_Store
+*.swp
+*.tmp
+
+# Dataset & large files
+data/
+datasets/
+*.csv
+*.tsv
+*.xlsx
+*.zip
+*.tar
+*.gz
+
+# Model files
+*.onnx
+
+# Streamlit
+.streamlit/secrets.toml
+.streamlit/config.toml
+
+# IDE/editor settings
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# OS generated
+Thumbs.db
+ehthumbs.db
+Desktop.ini
