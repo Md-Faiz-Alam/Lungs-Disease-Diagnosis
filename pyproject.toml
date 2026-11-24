@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lungxray"
+version = "1.0.0"
+description = "Chest X-ray classification (COVID-19 / Normal / Pneumonia) with calibrated confidence, Grad-CAM explanations, data-leakage auditing and a production inference API."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "torch>=2.2",
+    "torchvision>=0.17",
+    "numpy>=1.26",
+    "pillow>=10.0",
+    "scikit-learn>=1.4",
+    "pyyaml>=6.0",
+    "pydantic>=2.5",
+    "matplotlib>=3.8",
+    "tqdm>=4.66",
+    "imagehash>=4.3",
+]
+
+[project.optional-dependencies]
+api = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "python-multipart>=0.0.9"]
+ui = ["streamlit>=1.35", "requests>=2.31"]
+export = ["onnx>=1.15", "onnxruntime>=1.17"]
+track = ["mlflow>=2.12"]
+dev = ["pytest>=8.0", "httpx>=0.27", "ruff>=0.4"]
+
+[project.scripts]
+lungxray = "lungxray.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

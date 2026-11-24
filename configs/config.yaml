@@ -1,0 +1,46 @@
+# Default experiment configuration.
+# Any key can be overridden from the CLI:  lungxray train --set model.name=resnet18 train.epochs=3
+project: lung-xray
+seed: 42
+output_dir: artifacts
+
+data:
+  train_dir: data/train
+  test_dir: data/test
+  classes: [COVID19, NORMAL, PNEUMONIA]
+  val_fraction: 0.15          # carved out of train (stratified, duplicate-group aware)
+  image_size: 224
+  batch_size: 32
+  num_workers: 4
+  balance: weighted_loss      # none | weighted_loss | weighted_sampler
+  near_duplicate_threshold: 4 # perceptual-hash Hamming distance treated as "same image"
+  drop_test_leaks: true       # evaluate on test images with no near-duplicate in train
+  drop_conflicting_labels: true # remove duplicate images that carry different labels
+  resize: center_crop         # center_crop hides the per-source aspect ratio (a shortcut); or square
+
+model:
+  name: efficientnet_b0       # custom_cnn | resnet18 | densenet121 | efficientnet_b0 | convnext_tiny
+  pretrained: true
+  dropout: 0.3
+
+train:
+  epochs: 12
+  lr: 0.0003
+  weight_decay: 0.0001
+  label_smoothing: 0.05
+  freeze_backbone_epochs: 1   # warm up the new head before fine-tuning the backbone
+  early_stopping_patience: 4
+  monitor: val_balanced_accuracy
+  amp: true                   # mixed precision, only used on CUDA
+  max_train_batches: null     # set small for smoke tests
+
+inference:
+  referral_threshold: 0.70    # below this calibrated confidence -> "refer to radiologist"
+
+promotion:                    # quality gate for copying a run to models/production
+  min_balanced_accuracy: 0.90
+  min_class_recall: 0.85
+  require_better_than_production: true
+
+tracking:
+  mlflow: false               # pip install -e ".[track]" and set true to log runs to MLflow

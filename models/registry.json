@@ -1,0 +1,20 @@
+[
+  {
+    "run": "local-resnet18",
+    "promoted_at": "2026-11-24T00:13:35+00:00",
+    "forced": false,
+    "metrics": {
+      "accuracy": 0.9646017699115044,
+      "balanced_accuracy": 0.9751084542754603,
+      "macro_f1": 0.9670311937866379,
+      "macro_roc_auc": 0.9950910395285565,
+      "ece": 0.011215912215068959,
+      "per_class_recall": {
+        "COVID19": 1.0,
+        "NORMAL": 0.9657534246575342,
+        "PNEUMONIA": 0.9595719381688466
+      },
+      "abnormal_sensitivity": 0.964248159831756
+    }
+  }
+]

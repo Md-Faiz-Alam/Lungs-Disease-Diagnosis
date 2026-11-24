@@ -1,0 +1,10 @@
+{
+  "onnx_path": "models\\production\\model.onnx",
+  "size_mb": 44.7,
+  "max_abs_logit_diff": 4.76837158203125e-07,
+  "parity_ok": true,
+  "cpu_latency_ms": {
+    "pytorch": 30.47,
+    "onnxruntime": 12.46
+  }
+}

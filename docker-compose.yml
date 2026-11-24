@@ -1,0 +1,21 @@
+services:
+  api:
+    build: .
+    image: lungxray:latest
+    ports: ["8000:8000"]
+    environment:
+      - API_KEY=${API_KEY:-}
+    volumes:
+      - ./models/production:/app/models/production:ro
+      - ./logs:/app/logs
+
+  ui:
+    image: lungxray:latest
+    depends_on:
+      api:
+        condition: service_healthy
+    command: ["streamlit", "run", "app/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    ports: ["8501:8501"]
+    environment:
+      - API_URL=http://api:8000
+      - API_KEY=${API_KEY:-}

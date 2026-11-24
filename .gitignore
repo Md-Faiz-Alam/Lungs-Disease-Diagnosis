@@ -23,8 +23,8 @@ lung/
 *.tmp
 
 # Dataset & large files
-data/
-datasets/
+/data/
+/datasets/
 *.csv
 *.tsv
 *.xlsx
@@ -49,3 +49,17 @@ datasets/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Project outputs (models are published as GitHub release assets, not committed)
+artifacts/
+logs/
+mlruns/
+models/**/*.pt
+models/**/*.onnx
+*.pth
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Local editor/tool settings
+.claude/

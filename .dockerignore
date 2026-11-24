@@ -1,0 +1,15 @@
+.git
+.venv
+lung
+data
+artifacts
+logs
+mlruns
+notebook
+kaggle
+tests
+**/__pycache__
+*.ipynb
+*.png
+!samples/*
+models/legacy

@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install (CPU torch)
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+          pip install -e ".[api,ui,export,dev]"
+      - name: Lint
+        run: |
+          ruff check src tests app kaggle
+          ruff format --check src tests app kaggle
+      - name: Tests
+        run: pytest -q
+
+  docker:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t lungxray:ci .
+      - name: Smoke test container
+        run: |
+          docker run -d --name api -p 8000:8000 lungxray:ci
+          for i in $(seq 1 30); do curl -fs localhost:8000/health && break; sleep 2; done
+          curl -fs localhost:8000/health
