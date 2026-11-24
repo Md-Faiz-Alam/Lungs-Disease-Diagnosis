@@ -14,9 +14,16 @@ An end-to-end clinical decision-support system for chest X-rays. A model classif
 as **COVID-19, Normal or Pneumonia** with a **calibrated** confidence, a **"refer to a radiologist"**
 flag when it is unsure, and a **Grad-CAM** heatmap. A React web app turns that into a radiology
 workflow: DICOM upload with de-identification, a triage worklist, a diagnostic viewer, clinician
-sign-off, PDF reports and an audit trail. It runs on Azure with Entra ID sign-in and no stored secrets.
+sign-off, PDF reports and an audit trail. It deploys to Azure automatically from `main`, with no stored
+secrets, and supports Microsoft Entra ID sign-in.
 
 > ⚠️ Research and portfolio project, **not a medical device**. Do not use it for diagnosis.
+
+![Study viewer: Grad-CAM overlay, calibrated finding, clinician sign-off](docs/screenshots/study-viewer.png)
+
+| Triage worklist | Model & validation |
+|---|---|
+| ![Worklist ordered by AI triage priority](docs/screenshots/worklist.png) | ![Live model metrics and documented limitations](docs/screenshots/model-validation.png) |
 
 **The interesting part isn't the CNN, it's what the data audit found.** The public dataset
 leaks test images into training and carries strong "which hospital did this come from" shortcuts.
@@ -89,6 +96,10 @@ disease is the costly error). ECE is expected calibration error after temperatur
 |---|---|---|
 | ![cm](docs/figures/confusion_matrix.png) | ![cm0](docs/figures/confusion_matrix_v0.png) | ![rel](docs/figures/reliability.png) |
 
+| ROC curves (one-vs-rest) | Training curves (Kaggle T4, early stopping) |
+|---|---|
+| ![roc](docs/figures/roc_curves.png) | ![curves](docs/figures/training_curves.png) |
+
 **Grad-CAM, top row = the model's most confident mistakes.** The heatmaps sit on the lung fields and
 heart, not on the "R" or "D" markers. The missed pneumonia cases are mostly paediatric films.
 
@@ -151,8 +162,8 @@ flowchart LR
 - The image is pushed with a per-run token and pulled from a public package, so there are no registry credentials.
 - The deploy identity has least privilege, enforced by an ABAC condition on role assignments.
 
-Images are deleted after 30 days, the API scales to zero, there's no paid registry, and a budget alert guards
-spend: the whole deployment costs under $0.50/month. Full design,
+Images are deleted after 30 days, the API scales to zero, and there's no paid registry, so the whole deployment
+costs under $0.50/month. Full design,
 security table, setup and operations: **[docs/azure-deployment.md](docs/azure-deployment.md)**.
 
 ## What makes it production-grade
@@ -181,7 +192,7 @@ security table, setup and operations: **[docs/azure-deployment.md](docs/azure-de
 
 ```bash
 python -m venv .venv && .venv\Scripts\activate          # Windows (source .venv/bin/activate on Linux/macOS)
-pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements-lock.txt   # exact versions, CPU torch
 pip install -e ".[api,azure,export,dev]"
 ```
 
@@ -194,7 +205,7 @@ lungxray train --set model.name=efficientnet_b0   # train + calibrate + evaluate
 lungxray train --set model.name=resnet18 train.epochs=3 --promote
 lungxray evaluate --model models/production/model.pt
 lungxray export-onnx                              # ONNX + parity check + latency
-lungxray predict samples/COVID19_1.jpg
+lungxray predict web/public/samples/COVID19_1.jpg
 ```
 
 ### Train on a Kaggle GPU
@@ -220,7 +231,7 @@ docker compose up --build                         # or both in containers: web o
 ```
 
 ```bash
-curl -F "file=@samples/PNEUMONIA_1.jpg" "http://localhost:8000/predict?explain=false"
+curl -F "file=@web/public/samples/PNEUMONIA_1.jpg" "http://localhost:8000/predict?explain=false"
 ```
 
 ## Project layout
@@ -238,10 +249,12 @@ src/lungxray/
                storage.py (local / Azure, managed identity) · triage.py · report.py (PDF)
   api.py · monitoring.py (PSI drift) · export.py (ONNX) · fetch_model.py (checksum) · cli.py
 web/                         React + TypeScript clinical app (pages, viewer, auth, tests)
-infra/                       main.bicep · bootstrap.ps1 (OIDC + least privilege) · setup-entra.ps1
-.github/workflows/           ci.yml (quality gate) · deploy.yml (CD to Azure)
-kaggle/run_kaggle.py · tests/ · Dockerfile · docker-compose.yml · docs/azure-deployment.md
-notebook/Experiment.ipynb    original exploratory notebook (v0 baseline)
+infra/                       main.bicep · budget.bicep · bootstrap.ps1 (OIDC + least privilege) · setup-entra.ps1
+.github/workflows/           ci.yml (quality gate) · deploy.yml (CD to Azure) · codeql.yml (security analysis)
+models/legacy/               custom_cnn_v0.pth: the original notebook model, kept as the v0 baseline
+notebook/Experiment.ipynb    original exploratory notebook (v0)
+kaggle/run_kaggle.py         multi-model GPU training + comparison table
+tests/ · Dockerfile · docker-compose.yml · requirements-lock.txt · MODEL_CARD.md · SECURITY.md
 ```
 
 ## Limitations

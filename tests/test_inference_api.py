@@ -67,8 +67,13 @@ def test_api_batch(client):
     assert r.status_code == 200 and len(r.json()) == 3
 
 
-def test_api_key_enforced(client, monkeypatch):
-    monkeypatch.setenv("API_KEY", "secret")
+def test_api_key_enforced(tiny_bundle, tmp_path, monkeypatch):
+    monkeypatch.setenv("MODEL_PATH", str(tiny_bundle))
+    monkeypatch.setenv("PREDICTION_LOG", str(tmp_path / "log.jsonl"))
+    monkeypatch.setenv("API_KEY", "secret")  # configured before startup, like a real deployment
+    from lungxray.api import app
+
     f = {"file": ("x.png", _png(fake_xray(5, 2)), "image/png")}
-    assert client.post("/predict", files=f).status_code == 401
-    assert client.post("/predict", files=f, headers={"X-API-Key": "secret"}).status_code == 200
+    with TestClient(app) as c:
+        assert c.post("/predict", files=f).status_code == 401
+        assert c.post("/predict", files=f, headers={"X-API-Key": "secret"}).status_code == 200

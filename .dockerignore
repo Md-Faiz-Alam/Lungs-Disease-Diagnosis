@@ -1,6 +1,5 @@
 .git
 .venv
-lung
 data
 artifacts
 logs
@@ -16,5 +15,4 @@ var
 **/__pycache__
 *.ipynb
 *.png
-!samples/*
 models/legacy

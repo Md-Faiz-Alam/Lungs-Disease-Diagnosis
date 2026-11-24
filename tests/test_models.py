@@ -31,10 +31,13 @@ def test_freeze_backbone_leaves_head_trainable():
     assert trainable and all(n.startswith("fc.") for n in trainable)
 
 
-@pytest.mark.skipif(not Path("model.pth").exists(), reason="legacy weights not present")
+LEGACY = Path("models/legacy/custom_cnn_v0.pth")
+
+
+@pytest.mark.skipif(not LEGACY.exists(), reason="legacy weights not present")
 def test_legacy_weights_load(tmp_path):
     out = tmp_path / "legacy.pt"
-    import_legacy_state_dict("model.pth", out, ["COVID19", "NORMAL", "PNEUMONIA"])
+    import_legacy_state_dict(LEGACY, out, ["COVID19", "NORMAL", "PNEUMONIA"])
     model, meta = load_bundle(out)
     assert meta["preprocessing"]["resize"] == "center_crop"
     with torch.no_grad():

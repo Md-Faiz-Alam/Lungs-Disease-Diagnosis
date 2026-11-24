@@ -148,7 +148,7 @@ app.add_middleware(
 def require_key(request: Request, x_api_key: str | None = Header(default=None)) -> None:
     """Guard for the original inference endpoints: API key if configured, Entra token in entra mode."""
     settings = get_settings()
-    expected = os.environ.get("API_KEY")
+    expected = settings.legacy_api_key
     if expected and x_api_key != expected:
         raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key header")
     if not expected and settings.auth_mode == "entra":
@@ -164,7 +164,7 @@ def get_predictor() -> Predictor:
 def _read(file: UploadFile) -> bytes:
     if file.content_type and file.content_type.lower() not in ALLOWED_TYPES:
         raise HTTPException(status_code=415, detail=f"Unsupported content type {file.content_type}")
-    limit = int(float(os.environ.get("MAX_UPLOAD_MB", "10")) * 1024 * 1024)
+    limit = int(get_settings().max_upload_mb * 1024 * 1024)
     data = file.file.read(limit + 1)
     if len(data) > limit:
         raise HTTPException(status_code=413, detail="File too large")

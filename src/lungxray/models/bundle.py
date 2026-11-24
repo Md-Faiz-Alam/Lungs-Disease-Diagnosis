@@ -71,8 +71,9 @@ def update_bundle(path: str | Path, **fields) -> None:
 
 
 def import_legacy_state_dict(state_dict_path: str | Path, out_path: str | Path, classes: list[str]) -> None:
-    """Wrap the original notebook's ``model.pth`` (LegacyNet state_dict) into a bundle with its
-    original preprocessing (resize short side + center crop), so it can be evaluated fairly."""
+    """Wrap the original notebook's weights (``models/legacy/custom_cnn_v0.pth``, a LegacyNet
+    state_dict) into a bundle with its original preprocessing (resize short side + center crop),
+    so it can be evaluated fairly."""
     model = build_model("custom_cnn", len(classes))
     model.load_state_dict(torch.load(state_dict_path, map_location="cpu", weights_only=True))
     save_bundle(

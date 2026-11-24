@@ -20,16 +20,32 @@ def export_onnx(bundle_path: str | Path, out_path: str | Path, runs: int = 30) -
     dummy = torch.randn(1, 3, size, size)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    kwargs = dict(
-        input_names=["image"],
-        output_names=["logits"],
-        dynamic_axes={"image": {0: "batch"}, "logits": {0: "batch"}},
-        opset_version=17,
-    )
     try:
-        torch.onnx.export(model, dummy, str(out_path), dynamo=False, **kwargs)
-    except TypeError:  # older torch without the dynamo flag
-        torch.onnx.export(model, dummy, str(out_path), **kwargs)
+        import onnxscript  # noqa: F401  (required by the torch.export-based exporter)
+
+        # Modern exporter (default since PyTorch 2.9): traces with torch.export, dynamic batch size.
+        program = torch.onnx.export(
+            model,
+            (dummy,),
+            dynamo=True,
+            input_names=["image"],
+            output_names=["logits"],
+            dynamic_shapes={"x": {0: torch.export.Dim("batch", min=1, max=256)}},
+            verbose=False,
+        )
+        program.save(str(out_path))
+        exporter = "torch.export"
+    except ImportError:  # onnxscript not installed: fall back to the legacy TorchScript exporter
+        torch.onnx.export(
+            model,
+            dummy,
+            str(out_path),
+            input_names=["image"],
+            output_names=["logits"],
+            dynamic_axes={"image": {0: "batch"}, "logits": {0: "batch"}},
+            opset_version=17,
+        )
+        exporter = "torchscript (legacy)"
 
     import onnxruntime as ort
 
@@ -57,7 +73,8 @@ def export_onnx(bundle_path: str | Path, out_path: str | Path, runs: int = 30) -
     onnx_ms = (time.perf_counter() - t0) / runs * 1000
 
     report = {
-        "onnx_path": str(out_path),
+        "onnx_path": out_path.as_posix(),
+        "exporter": exporter,
         "size_mb": round(out_path.stat().st_size / 1e6, 2),
         "max_abs_logit_diff": max_diff,
         "parity_ok": max_diff < 1e-3,
