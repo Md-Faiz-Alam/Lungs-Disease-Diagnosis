@@ -16,5 +16,23 @@
       },
       "abnormal_sensitivity": 0.964248159831756
     }
+  },
+  {
+    "run": "kaggle-resnet18",
+    "promoted_at": "2026-11-24T02:36:44+00:00",
+    "forced": false,
+    "metrics": {
+      "accuracy": 0.9718423169750603,
+      "balanced_accuracy": 0.9771852382736359,
+      "macro_f1": 0.9724301714304179,
+      "macro_roc_auc": 0.9965439704127202,
+      "ece": 0.017887823379696254,
+      "per_class_recall": {
+        "COVID19": 1.0,
+        "NORMAL": 0.958904109589041,
+        "PNEUMONIA": 0.9726516052318668
+      },
+      "abnormal_sensitivity": 0.9768664563617245
+    }
   }
 ]

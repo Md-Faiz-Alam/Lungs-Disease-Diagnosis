@@ -35,25 +35,44 @@ sources. Any high accuracy on this dataset should be read with that in mind. See
 
 ## Results (clean test set, n = 1,243)
 
-| Model | Params | Accuracy | **Balanced acc.** (95% CI) | Macro F1 | Macro AUC | Recall COVID / Normal / Pneumonia | Missed disease | ECE |
-|---|---|---|---|---|---|---|---|---|
-| v0: original custom CNN (notebook) | 11.7K | 0.926 | 0.897 (0.872–0.923) | 0.903 | 0.985 | 0.864 / 0.877 / 0.951 | 33 | 0.018 |
-| **v1: ResNet-18** (6 epochs, CPU) | 11.2M | **0.965** | **0.975 (0.966–0.983)** | **0.967** | **0.995** | 1.000 / 0.966 / 0.960 | 34 | **0.011** |
+All v1 models were trained on a Kaggle T4 GPU with `kaggle/run_kaggle.py`: same seed, same
+splits, up to 15 epochs with early stopping on validation balanced accuracy.
 
-Calibration: temperature scaling cut ECE from 0.090 to 0.011 for ResNet-18. ONNX Runtime
-inference takes 12 ms/image on CPU vs 30 ms in PyTorch, with logits matching to within 5e-7.
+| Model | Params | Accuracy | **Balanced acc.** (95% CI) | Macro F1 | Macro AUC | Abnormal sensitivity | ECE |
+|---|---|---|---|---|---|---|---|
+| v0: original custom CNN (old notebook training) | 11.7K | 0.926 | 0.897 (0.872–0.923) | 0.903 | 0.985 | 0.965 | 0.018 |
+| v1: same custom CNN, new pipeline | 11.7K | 0.933 | 0.943 (0.927–0.957) | 0.924 | 0.989 | 0.951 | 0.016 |
+| v1: EfficientNet-B0 | 4.0M | 0.963 | 0.973 (0.963–0.981) | 0.964 | 0.995 | 0.964 | 0.017 |
+| v1: DenseNet-121 | 7.0M | 0.970 | **0.980 (0.973–0.987)** | 0.972 | 0.996 | 0.968 | 0.022 |
+| **v1: ResNet-18 (deployed)** | 11.2M | **0.972** | 0.977 (0.968–0.985) | **0.972** | **0.997** | **0.977** | 0.018 |
+
+**Why ResNet-18 is deployed and not DenseNet-121.** Their balanced-accuracy confidence intervals
+overlap almost completely, so the 0.003 gap is noise. ResNet-18 misses the fewest disease cases
+(highest abnormal sensitivity: 22 missed vs 33 for v0), has the best AUC, and is
+faster at inference. In screening, a missed disease is the costly error, so the model was chosen on
+that, not on the headline number.
+
+**The pipeline is worth about 5 points on its own.** The *identical* 11.7K-parameter CNN goes from
+0.897 to 0.943 balanced accuracy purely from class-weighted loss, anatomically valid augmentation,
+leakage-safe splits and early stopping, without any architecture change.
+
+Calibration: temperature scaling cuts ECE about 5x (deployed ResNet-18: 0.091 → 0.018). *ECE values for
+the other rows come from a temperature fit that could stop early (since fixed with a bounded
+search, re-verified for ResNet-18), so treat them as approximate.* ONNX Runtime
+inference is about 2.5x faster than PyTorch on CPU (~14 ms vs ~35 ms per image), with logits matching to within 1e-6.
 
 **How to read these numbers honestly**
-- Balanced accuracy improved by 7.8 points, but **missed disease cases did not drop** (33 → 34): almost
-  all remaining errors are Pneumonia called Normal at high confidence, so calibration alone
-  cannot flag them. A screening deployment should pick a lower operating threshold for "Normal".
-- **COVID-19 recall of 1.000 (AUC 1.000) is a warning sign, not a triumph.** Given the metadata
-  probe, the model very likely recognises the COVID source images partly from acquisition
-  differences. Only external validation can tell how much is real.
-- On the leaky original test set the same model scores 0.976 vs 0.975 clean. The 45 leaked
-  images were mostly easy, but published numbers on this dataset are still measured on duplicates.
-- Pretrained EfficientNet-B0, DenseNet-121 and ConvNeXt-Tiny are one command away on a Kaggle GPU
-  (`kaggle/run_kaggle.py`). Their results will be added to this table.
+- **COVID-19 is classified almost perfectly (recall 1.000, AUC 1.000).** That's a warning sign, not a
+  triumph. Given the metadata probe, the model very likely recognises the COVID source images partly
+  from acquisition differences. Only external validation can tell how much is real.
+- The remaining errors are mostly Pneumonia called Normal at high confidence, often on paediatric
+  films, so calibration alone cannot flag them. A screening deployment should use a lower operating
+  threshold for "Normal".
+- On the leaky original test set the deployed model scores 0.978 vs 0.977 clean: the 45 leaked
+  images were mostly easy. Published numbers on this dataset are still measured on duplicates, though.
+- Under 1% of test images fall below the 0.70 referral threshold, and accuracy on the rest is 97.7%.
+  The 22 missed pneumonias are confidently wrong, which is exactly why the referral flag can't be the
+  only safety net.
 
 *Balanced accuracy is the mean per-class recall, which is robust to the 7:1 class imbalance.
 "Abnormal sensitivity" is the share of COVID + Pneumonia cases **not** called Normal (a missed
@@ -100,7 +119,7 @@ flowchart LR
   limits, optional API key, batch endpoint and Prometheus `/metrics`.
 - **Monitoring**: every prediction is logged, and `lungxray drift` computes the Population Stability
   Index of live inputs and confidence against the training reference.
-- **Engineering**: typed config (pydantic + YAML + CLI overrides), 25 pytest tests including an
+- **Engineering**: typed config (pydantic + YAML + CLI overrides), 26 pytest tests including an
   end-to-end train→serve run on synthetic data, GitHub Actions CI, Docker and docker-compose,
   and ONNX export with a parity check and latency benchmark.
 

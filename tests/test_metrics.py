@@ -75,3 +75,15 @@ def test_drift_needs_minimum_sample(tiny_bundle, tmp_path):
     assert drift_report(path, log)["alert"] is False
     log.write_text("\n".join(json.dumps(row) for _ in range(150)))
     assert drift_report(path, log)["alert"] is True
+
+
+def test_temperature_matches_grid_search_optimum():
+    from lungxray.evaluation.calibration import _nll
+
+    rng = np.random.default_rng(3)
+    y = rng.integers(0, 3, 800)
+    logits = rng.normal(0, 1, (800, 3))
+    logits[np.arange(800), y] += 2.5  # under-confident model: optimum T < 1
+    grid = np.exp(np.linspace(np.log(0.05), np.log(20), 4000))
+    best = grid[np.argmin([_nll(logits, y, t) for t in grid])]
+    assert abs(fit_temperature(logits, y) - best) / best < 0.01

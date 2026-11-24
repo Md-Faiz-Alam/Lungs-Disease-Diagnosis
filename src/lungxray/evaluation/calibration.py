@@ -8,24 +8,30 @@ of it without changing the predicted class.
 from __future__ import annotations
 
 import numpy as np
-import torch
+from scipy.optimize import minimize_scalar
 
 
-def fit_temperature(logits: np.ndarray, labels: np.ndarray, max_iter: int = 200) -> float:
-    logits_t = torch.as_tensor(logits, dtype=torch.float64)
-    labels_t = torch.as_tensor(labels, dtype=torch.long)
-    log_t = torch.zeros(1, dtype=torch.float64, requires_grad=True)
-    opt = torch.optim.LBFGS([log_t], lr=0.05, max_iter=max_iter)
-    nll = torch.nn.CrossEntropyLoss()
+def _nll(logits: np.ndarray, labels: np.ndarray, temperature: float) -> float:
+    z = np.asarray(logits, dtype=np.float64) / temperature
+    z = z - z.max(1, keepdims=True)
+    log_probs = z - np.log(np.exp(z).sum(1, keepdims=True))
+    return float(-log_probs[np.arange(len(labels)), labels].mean())
 
-    def closure():
-        opt.zero_grad()
-        loss = nll(logits_t / log_t.exp(), labels_t)
-        loss.backward()
-        return loss
 
-    opt.step(closure)
-    return float(np.clip(log_t.exp().item(), 0.05, 20.0))
+def fit_temperature(logits: np.ndarray, labels: np.ndarray) -> float:
+    """Temperature minimising validation NLL.
+
+    NLL is unimodal in log(T), so a bounded 1-D search over log T in [log 0.05, log 20]
+    is deterministic and always converges (unlike a single LBFGS step, which can stop early).
+    """
+    labels = np.asarray(labels, dtype=int)
+    res = minimize_scalar(
+        lambda log_t: _nll(logits, labels, float(np.exp(log_t))),
+        bounds=(np.log(0.05), np.log(20.0)),
+        method="bounded",
+        options={"xatol": 1e-5},
+    )
+    return float(np.exp(res.x))
 
 
 def softmax(logits: np.ndarray, temperature: float = 1.0) -> np.ndarray:

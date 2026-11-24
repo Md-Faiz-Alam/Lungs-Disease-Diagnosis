@@ -19,7 +19,7 @@ data:
   resize: center_crop         # center_crop hides the per-source aspect ratio (a shortcut); or square
 
 model:
-  name: efficientnet_b0       # custom_cnn | resnet18 | densenet121 | efficientnet_b0 | convnext_tiny
+  name: resnet18              # custom_cnn | resnet18 | densenet121 | efficientnet_b0 | convnext_tiny
   pretrained: true
   dropout: 0.3
 

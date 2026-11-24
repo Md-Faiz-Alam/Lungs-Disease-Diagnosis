@@ -54,7 +54,7 @@ def compute_metrics(y_true: np.ndarray, probs: np.ndarray, classes: list[str]) -
         "balanced_accuracy": float(balanced_accuracy_score(y_true, y_pred)),
         "macro_f1": float(f1_score(y_true, y_pred, average="macro", zero_division=0)),
         "macro_roc_auc": macro_auc,
-        "log_loss": float(log_loss(y_true, np.clip(probs, 1e-7, 1), labels=list(range(n)))),
+        "log_loss": float(log_loss(y_true, probs / probs.sum(1, keepdims=True), labels=list(range(n)))),
         "ece": expected_calibration_error(probs, y_true),
         "per_class": per_class,
         "confusion_matrix": cm.tolist(),

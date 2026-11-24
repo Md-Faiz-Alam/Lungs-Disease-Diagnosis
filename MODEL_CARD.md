@@ -2,8 +2,8 @@
 
 ## Model details
 - **Task**: 3-class image classification of frontal chest radiographs: `COVID19`, `NORMAL`, `PNEUMONIA`.
-- **Architecture**: ImageNet-pretrained CNN (EfficientNet-B0 by default; ResNet-18, DenseNet-121,
-  ConvNeXt-Tiny and the original 11.7K-parameter custom CNN are also supported), fine-tuned end to end.
+- **Architecture**: ImageNet-pretrained ResNet-18 (deployed; chosen for highest disease sensitivity). EfficientNet-B0, DenseNet-121,
+  ConvNeXt-Tiny and the original 11.7K-parameter custom CNN are also supported. Fine-tuned end to end.
 - **Outputs**: temperature-calibrated class probabilities, a `needs_review` flag (confidence below
   the referral threshold, default 0.70), and an optional Grad-CAM heatmap.
 - **Artifact**: a single self-describing bundle (`model.pt`) holding weights, preprocessing,
