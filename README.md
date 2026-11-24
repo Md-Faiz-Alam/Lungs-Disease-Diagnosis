@@ -17,6 +17,11 @@ workflow: DICOM upload with de-identification, a triage worklist, a diagnostic v
 sign-off, PDF reports and an audit trail. It deploys to Azure automatically from `main`, with no stored
 secrets, and supports Microsoft Entra ID sign-in.
 
+### 🔗 [Live demo](https://gentle-mushroom-0e5d3d800.3.azurestaticapps.net) · [API docs](https://ca-lungxray-api.delightfulsmoke-ef33b695.uaenorth.azurecontainerapps.io/docs)
+
+No sign-up: click **Open demo workspace** and try one of the sample X-rays. Each browser gets its own
+private workspace. The API scales to zero when idle, so the **first analysis can take ~30 s** to wake it up.
+
 > ⚠️ Research and portfolio project, **not a medical device**. Do not use it for diagnosis.
 
 ![Study viewer: Grad-CAM overlay, calibrated finding, clinician sign-off](docs/screenshots/study-viewer.png)
