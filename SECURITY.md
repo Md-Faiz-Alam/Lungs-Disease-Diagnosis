@@ -16,7 +16,8 @@ Include the affected component (API, web app, infrastructure), steps to reproduc
 - Production uses Microsoft Entra ID sign-in, managed identities and OIDC deployment. No
   credentials are stored in the repository or in CI. See [docs/azure-deployment.md](docs/azure-deployment.md).
 - Automated checks on every change: CodeQL static analysis, dependency audits (pip-audit,
-  npm audit), container image scanning (Trivy) and weekly Dependabot updates.
+  npm audit) and container image scanning (Trivy). Dependencies are pinned in
+  `requirements-lock.txt` and `web/package-lock.json` and updated deliberately.
 
 ## Supported versions
 

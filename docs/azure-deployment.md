@@ -105,7 +105,7 @@ flowchart LR
 | Automatic rollback if the new version is unhealthy | "Automatic rollback on failure" step |
 | One deployment at a time, never cancelled mid-way | `concurrency: deploy-production` |
 | Docs-only changes don't redeploy | `paths-ignore: ["**.md", "docs/**", ...]` |
-| Weekly dependency and security updates as tested PRs | `.github/dependabot.yml` |
+| Vulnerable dependencies block the pipeline | `pip-audit`, `npm audit` and Trivy in `ci.yml` |
 | Infrastructure drift corrected on every deploy | Bicep is idempotent and re-applied each run |
 
 **Recommended:** protect `main` so code can only land through a pull request that passed CI:

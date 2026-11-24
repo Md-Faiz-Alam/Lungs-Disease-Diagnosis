@@ -133,7 +133,7 @@ lazy-loaded and the sign-in library is split into its own chunk.
 
 Everything is infrastructure-as-code ([`infra/main.bicep`](infra/main.bicep)) and **deploys automatically on every
 push to `main`**: tests → image build (model verified by SHA-256) → Bicep deploy → health check → web deploy, with
-**automatic rollback** if the new version is unhealthy. Dependabot opens weekly, CI-tested update PRs.
+**automatic rollback** if the new version is unhealthy.
 
 ```mermaid
 flowchart LR
@@ -175,7 +175,7 @@ security table, setup and operations: **[docs/azure-deployment.md](docs/azure-de
   validation, cross-user isolation, rate limiting and the promotion gate. Also Vitest front-end tests,
   locked dependencies for reproducible images, and ONNX export with a parity check.
 - **Security automation**: CodeQL static analysis, pip-audit and npm audit, Trivy container scanning,
-  weekly Dependabot updates, pre-commit hooks, and a [security policy](SECURITY.md).
+  pre-commit hooks, and a [security policy](SECURITY.md).
 
 ## Quickstart
 
