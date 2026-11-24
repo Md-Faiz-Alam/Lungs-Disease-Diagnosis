@@ -1,13 +1,17 @@
 # 🫁 Lung X-ray Classifier — leakage-audited, calibrated & explainable
 
-[![CI](https://github.com/Md-Faiz-Alam/Lungs-Disease-Diagnosis/actions/workflows/ci.yml/badge.svg)](https://github.com/Md-Faiz-Alam/Lungs-Disease-Diagnosis/actions/workflows/ci.yml)
+[![CI/CD](https://github.com/Md-Faiz-Alam/Lungs-Disease-Diagnosis/actions/workflows/deploy.yml/badge.svg)](https://github.com/Md-Faiz-Alam/Lungs-Disease-Diagnosis/actions/workflows/deploy.yml)
 ![Python](https://img.shields.io/badge/python-3.13-blue)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.x-ee4c2c)
 ![FastAPI](https://img.shields.io/badge/API-FastAPI-009688)
+![React](https://img.shields.io/badge/Web-React%20%2B%20TypeScript-3178c6)
+![Azure](https://img.shields.io/badge/Cloud-Azure-0078d4)
 
-Classifies frontal chest radiographs as **COVID-19, Normal or Pneumonia**. Every prediction
-comes with a **calibrated** confidence, a **"refer to a radiologist"** flag when the model
-is unsure, and a **Grad-CAM** heatmap showing what the model looked at.
+An end-to-end clinical decision-support system for chest X-rays. A model classifies frontal radiographs
+as **COVID-19, Normal or Pneumonia** with a **calibrated** confidence, a **"refer to a radiologist"**
+flag when it is unsure, and a **Grad-CAM** heatmap. A React web app turns that into a radiology
+workflow: DICOM upload with de-identification, a triage worklist, a diagnostic viewer, clinician
+sign-off, PDF reports and an audit trail. It runs on Azure with Entra ID sign-in and no stored secrets.
 
 > ⚠️ Research and portfolio project, **not a medical device**. Do not use it for diagnosis.
 
@@ -100,9 +104,51 @@ flowchart LR
     G -- pass --> H[models/production<br/>self-describing bundle]
     H --> I[FastAPI /predict]
     H --> J[ONNX export]
-    I --> K[Streamlit UI]
+    I --> K[React clinical web app]
     I --> L[Prediction log → drift PSI]
 ```
+
+## Clinical web app
+
+A React + TypeScript single-page app ([`web/`](web/)) backed by the FastAPI `/api` routes:
+
+| Feature | Details |
+|---|---|
+| **DICOM & image upload** | Drag-and-drop `.dcm`, PNG or JPEG, several at once. DICOM is de-identified on receipt: only pixels and an allow-list of technical tags (modality, view, body part…) are kept, and lateral or non-chest studies are flagged. |
+| **Triage worklist** | Unreviewed studies first, ordered **urgent → needs review → routine**, with KPI tiles, filters and search. |
+| **Diagnostic viewer** | Zoom/pan, window/level by right-drag (radiology convention) or presets (lung, bone, soft tissue), invert, and a pixel-aligned Grad-CAM overlay with an opacity slider. |
+| **Clinician sign-off** | Confirm or override each AI finding with a note. Overrides are stored as labelled feedback for future retraining. |
+| **PDF report** | Structured report: triage, calibrated probabilities, image + heatmap, review, model limitations. |
+| **Audit log** | Every upload, view, review, download and deletion, per user. |
+| **Model & validation page** | Live metrics from the deployed model bundle, calibration explained, known limitations. |
+| **Security** | Microsoft Entra ID (MSAL, PKCE), JWT validation in the API, per-clinician data isolation, CSP/HSTS. |
+
+Tooling: Vite, React 19, TanStack Query, Tailwind CSS, Vitest + Testing Library, oxlint. Pages are
+lazy-loaded and the sign-in library is split into its own chunk.
+
+## Cloud deployment (Azure)
+
+Everything is infrastructure-as-code ([`infra/main.bicep`](infra/main.bicep)) and **deploys automatically on every
+push to `main`**: tests → image build (model verified by SHA-256) → Bicep deploy → health check → web deploy, with
+**automatic rollback** if the new version is unhealthy. Dependabot opens weekly, CI-tested update PRs.
+
+```mermaid
+flowchart LR
+    U[Browser] --> SWA[Static Web Apps<br/>React SPA]
+    U -->|Entra ID token| CA[Container Apps<br/>FastAPI + model]
+    CA -->|managed identity| ST[(Blob + Table Storage)]
+    CA -->|managed identity| ACR[(Container Registry)]
+    CA --> AI[Application Insights]
+    GH[GitHub Actions] -->|OIDC, no secrets| CA
+```
+
+**No credentials exist anywhere:**
+- GitHub authenticates with OIDC federation.
+- The API reaches Storage and the registry through a managed identity, and storage account keys are disabled.
+- The deploy identity has least privilege, enforced by an ABAC condition on role assignments.
+
+Images are deleted after 30 days, the API scales to zero, and a budget alert guards spend. Full design,
+security table, setup and operations: **[docs/azure-deployment.md](docs/azure-deployment.md)**.
 
 ## What makes it production-grade
 
@@ -119,16 +165,16 @@ flowchart LR
   limits, optional API key, batch endpoint and Prometheus `/metrics`.
 - **Monitoring**: every prediction is logged, and `lungxray drift` computes the Population Stability
   Index of live inputs and confidence against the training reference.
-- **Engineering**: typed config (pydantic + YAML + CLI overrides), 26 pytest tests including an
-  end-to-end train→serve run on synthetic data, GitHub Actions CI, Docker and docker-compose,
-  and ONNX export with a parity check and latency benchmark.
+- **Engineering**: typed config (pydantic + YAML + CLI overrides), 38 pytest tests (including an
+  end-to-end train→serve run, DICOM de-identification, JWT validation and cross-user isolation),
+  Vitest front-end tests, CI/CD with a quality gate, Docker, and ONNX export with a parity check.
 
 ## Quickstart
 
 ```bash
 python -m venv .venv && .venv\Scripts\activate          # Windows (source .venv/bin/activate on Linux/macOS)
 pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
-pip install -e ".[api,ui,export,dev]"
+pip install -e ".[api,azure,export,dev]"
 ```
 
 Put the [Kaggle dataset](https://www.kaggle.com/datasets/prashant268/chest-xray-covid19-pneumonia)
@@ -157,12 +203,12 @@ Create a Kaggle notebook (GPU on, Internet on), add the dataset as input, and ru
 This writes every run plus a `comparison.md` table to `/kaggle/working/artifacts`. Download the
 best `model.pt` to `models/production/model.pt`.
 
-### Serve
+### Run the full stack locally
 
 ```bash
-uvicorn lungxray.api:app --port 8000              # API docs at http://localhost:8000/docs
-streamlit run app/streamlit_app.py                # UI (uses API_URL if set, else loads the model)
-docker compose up --build                         # API on :8000 + UI on :8501
+uvicorn lungxray.api:app --port 8000              # API (demo sign-in, local storage); docs at /docs
+cd web && npm install && npm run dev              # web app on http://localhost:5173 (proxies /api)
+docker compose up --build                         # or both in containers: web on :8080, API on :8000
 ```
 
 ```bash
@@ -180,8 +226,13 @@ src/lungxray/
   evaluation/  metrics.py (CI, screening view) · calibration.py · report.py · evaluate.py
   explain/     gradcam.py
   inference/   predictor.py (validation, referral, logging)
-  api.py · monitoring.py (PSI drift) · export.py (ONNX) · cli.py
-app/streamlit_app.py · kaggle/run_kaggle.py · tests/ · Dockerfile · .github/workflows/ci.yml
+  service/     routes.py (/api) · auth.py (Entra JWT) · dicom_io.py (de-identification) ·
+               storage.py (local / Azure, managed identity) · triage.py · report.py (PDF)
+  api.py · monitoring.py (PSI drift) · export.py (ONNX) · fetch_model.py (checksum) · cli.py
+web/                         React + TypeScript clinical app (pages, viewer, auth, tests)
+infra/                       main.bicep · bootstrap.ps1 (OIDC + least privilege) · setup-entra.ps1
+.github/workflows/           ci.yml (quality gate) · deploy.yml (CD to Azure)
+kaggle/run_kaggle.py · tests/ · Dockerfile · docker-compose.yml · docs/azure-deployment.md
 notebook/Experiment.ipynb    original exploratory notebook (v0 baseline)
 ```
 

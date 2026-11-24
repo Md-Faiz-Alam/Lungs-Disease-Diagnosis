@@ -13,6 +13,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from matplotlib import colormaps
 from PIL import Image, UnidentifiedImageError
 
 from lungxray.data.dataset import Preprocessing, eval_transform
@@ -80,18 +81,15 @@ class Predictor:
             warnings.append(f"Unusual aspect ratio {ratio:.2f}; is this a frontal chest X-ray?")
         return warnings
 
-    def predict(self, img: Image.Image, explain: bool = False) -> dict:
+    def _run(self, img: Image.Image, need_heatmap: bool) -> tuple[dict, Image.Image, np.ndarray | None]:
         t0 = time.perf_counter()
         warnings = self.validate(img)
         gray = img.convert("L").convert("RGB")
         x = self.transform(gray).unsqueeze(0).to(self.device)
-        heat_b64 = None
+        heat = None
         with self._lock:
-            if explain:
+            if need_heatmap:
                 heat, logits = self._cam(x)
-                buf = io.BytesIO()
-                overlay(gray, heat).save(buf, format="PNG")
-                heat_b64 = base64.b64encode(buf.getvalue()).decode()
             else:
                 with torch.no_grad():
                     logits = self.model(x)
@@ -111,10 +109,48 @@ class Predictor:
             "model": {"arch": self.meta["arch"], "run_id": self.meta.get("run_id")},
             "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
         }
-        if heat_b64:
-            result["gradcam_png_base64"] = heat_b64
         self._log(gray, result)
+        return result, gray, heat
+
+    def predict(self, img: Image.Image, explain: bool = False) -> dict:
+        result, gray, heat = self._run(img, need_heatmap=explain)
+        if heat is not None:
+            buf = io.BytesIO()
+            overlay(gray, heat).save(buf, format="PNG")
+            result["gradcam_png_base64"] = base64.b64encode(buf.getvalue()).decode()
         return result
+
+    def analyze(self, img: Image.Image) -> tuple[dict, np.ndarray]:
+        """Prediction plus the raw Grad-CAM heatmap (model-input coordinates, values in [0, 1])."""
+        result, _gray, heat = self._run(img, need_heatmap=True)
+        return result, heat
+
+    def heatmap_layer(self, heat: np.ndarray, size: tuple[int, int]) -> Image.Image:
+        """RGBA heatmap aligned to an image of ``size`` (w, h); transparent where the model saw nothing.
+
+        With center-crop preprocessing the model only sees the central square, so the heatmap is
+        placed there instead of being stretched over the whole radiograph.
+        """
+        w, h = size
+        layer = np.zeros((h, w, 4), dtype=np.uint8)
+        if self.meta["preprocessing"].get("resize") == "center_crop":
+            side = min(w, h)
+            left, top = (w - side) // 2, (h - side) // 2
+            box_w, box_h = side, side
+        else:
+            left, top, box_w, box_h = 0, 0, w, h
+        hm = (
+            np.asarray(
+                Image.fromarray((heat * 255).astype(np.uint8)).resize((box_w, box_h), Image.BILINEAR),
+                dtype=np.float32,
+            )
+            / 255.0
+        )
+        rgb = (colormaps["jet"](hm)[..., :3] * 255).astype(np.uint8)
+        alpha = (np.clip((hm - 0.15) / 0.85, 0, 1) ** 0.8 * 255).astype(np.uint8)
+        layer[top : top + box_h, left : left + box_w, :3] = rgb
+        layer[top : top + box_h, left : left + box_w, 3] = alpha
+        return Image.fromarray(layer, mode="RGBA")
 
     def _log(self, gray: Image.Image, result: dict) -> None:
         if not self.prediction_log:

@@ -2,11 +2,20 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches-ignore: [main] # main is tested by deploy.yml, which reuses this workflow as its gate
   pull_request:
+  workflow_call: # reused by deploy.yml as its quality gate
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
+  api:
+    name: API (lint + tests)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -17,23 +26,43 @@ jobs:
       - name: Install (CPU torch)
         run: |
           pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
-          pip install -e ".[api,ui,export,dev]"
+          pip install -e ".[api,azure,export,dev]"
       - name: Lint
         run: |
-          ruff check src tests app kaggle
-          ruff format --check src tests app kaggle
+          ruff check src tests kaggle
+          ruff format --check src tests kaggle
       - name: Tests
         run: pytest -q
 
+  web:
+    name: Web (typecheck + lint + tests + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
   docker:
-    needs: test
+    name: Docker image (build + smoke test)
+    needs: api
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - name: Build image
-        run: docker build -t lungxray:ci .
+        run: docker build -t lungxray-api:ci .
       - name: Smoke test container
         run: |
-          docker run -d --name api -p 8000:8000 lungxray:ci
+          docker run -d --name api -p 8000:8000 lungxray-api:ci
           for i in $(seq 1 30); do curl -fs localhost:8000/health && break; sleep 2; done
           curl -fs localhost:8000/health

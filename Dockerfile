@@ -1,11 +1,12 @@
-# CPU inference image for the FastAPI service (and, with a different command, the Streamlit UI).
-FROM python:3.13-slim AS base
+# CPU inference image for the LungXray API (FastAPI + PyTorch model).
+FROM python:3.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     MODEL_PATH=/app/models/production/model.pt \
-    PREDICTION_LOG=/app/logs/predictions.jsonl
+    PREDICTION_LOG=/app/logs/predictions.jsonl \
+    LOCAL_STORAGE_DIR=/app/var/storage
 
 WORKDIR /app
 
@@ -14,21 +15,21 @@ RUN pip install --index-url https://download.pytorch.org/whl/cpu torch torchvisi
 
 COPY pyproject.toml README.md ./
 COPY src ./src
-RUN pip install ".[api,ui]"
+RUN pip install ".[api,azure]"
 
-COPY app ./app
-COPY samples ./samples
 COPY models ./models
 
-# Optional: fetch the model at build time instead of copying it (e.g. from a GitHub release)
+# The model is not committed to git: CI downloads it from a GitHub Release and verifies its SHA-256
 ARG MODEL_URL=""
-RUN if [ -n "$MODEL_URL" ]; then python -c "import urllib.request,os; os.makedirs('models/production',exist_ok=True); urllib.request.urlretrieve('$MODEL_URL','models/production/model.pt')"; fi
+ARG MODEL_SHA256=""
+RUN if [ -n "$MODEL_URL" ]; then python -m lungxray.fetch_model; fi
 
-RUN useradd --create-home appuser && mkdir -p /app/logs && chown -R appuser /app
-USER appuser
+RUN useradd --create-home --uid 10001 appuser && mkdir -p /app/logs /app/var/storage && chown -R appuser /app
+USER 10001
 
 EXPOSE 8000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-CMD ["uvicorn", "lungxray.api:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# One process per container; Azure Container Apps scales out with replicas.
+CMD ["uvicorn", "lungxray.api:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]

@@ -1,8 +1,7 @@
-"""FastAPI inference service.
+"""FastAPI service: clinical studies API (/api/*) for the web app plus the original inference API.
 
 Run:  uvicorn lungxray.api:app --host 0.0.0.0 --port 8000
-Env:  MODEL_PATH (default models/production/model.pt), API_KEY (optional),
-      PREDICTION_LOG (default logs/predictions.jsonl), MAX_UPLOAD_MB (default 10)
+Configuration is read from environment variables, see lungxray/service/settings.py.
 """
 
 from __future__ import annotations
@@ -12,15 +11,25 @@ import threading
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from lungxray import __version__
 from lungxray.inference.predictor import InvalidImageError, Predictor
+from lungxray.service.auth import get_current_user
+from lungxray.service.routes import router as clinical_router
+from lungxray.service.settings import Settings, get_settings
+from lungxray.service.storage import build_repository
 from lungxray.utils import get_logger
 
 log = get_logger("lungxray.api")
+
+if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):  # traces, requests, exceptions -> App Insights
+    from azure.monitor.opentelemetry import configure_azure_monitor
+
+    configure_azure_monitor(logger_name="lungxray")
 ALLOWED_TYPES = {"image/jpeg", "image/png", "image/jpg", "application/octet-stream"}
 MAX_BATCH = 16
 
@@ -60,15 +69,18 @@ state: dict = {"predictor": None, "stats": _Stats()}
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI):
-    path = os.environ.get("MODEL_PATH", "models/production/model.pt")
+async def lifespan(app: FastAPI):
+    get_settings.cache_clear()
+    settings = get_settings()
+    state["predictor"] = None
     try:
-        state["predictor"] = Predictor(
-            path, prediction_log=os.environ.get("PREDICTION_LOG", "logs/predictions.jsonl")
-        )
-        log.info("Loaded model %s from %s", state["predictor"].info["run_id"], path)
+        state["predictor"] = Predictor(settings.model_path, prediction_log=settings.prediction_log)
+        log.info("Loaded model %s from %s", state["predictor"].info["run_id"], settings.model_path)
     except FileNotFoundError:
-        log.error("Model file not found at %s - /predict will return 503", path)
+        log.error("Model file not found at %s - prediction endpoints will return 503", settings.model_path)
+    app.state.predictor = state["predictor"]
+    app.state.repo = build_repository(settings)
+    log.info("auth=%s storage=%s", settings.auth_mode, settings.storage_mode)
     yield
 
 
@@ -80,12 +92,37 @@ app = FastAPI(
     "medical device.",
     lifespan=lifespan,
 )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=Settings.from_env().cors_origins,
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
+    max_age=3600,
+)
 
 
-def require_key(x_api_key: str | None = Header(default=None)) -> None:
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    if request.url.path.startswith("/api/") and "Cache-Control" not in response.headers:
+        response.headers["Cache-Control"] = "no-store"  # never cache clinical data in shared caches
+    return response
+
+
+app.include_router(clinical_router)
+
+
+def require_key(request: Request, x_api_key: str | None = Header(default=None)) -> None:
+    """Guard for the original inference endpoints: API key if configured, Entra token in entra mode."""
+    settings = get_settings()
     expected = os.environ.get("API_KEY")
     if expected and x_api_key != expected:
         raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key header")
+    if not expected and settings.auth_mode == "entra":
+        get_current_user(request, settings)
 
 
 def get_predictor() -> Predictor:

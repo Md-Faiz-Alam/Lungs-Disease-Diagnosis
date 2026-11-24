@@ -1,0 +1,33 @@
+# Automated dependency and security updates. Each update arrives as a pull request that must pass CI
+# before it can be merged; merging to main then deploys automatically.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      python-minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: torch # CPU wheels come from the PyTorch index; upgrade deliberately
+      - dependency-name: torchvision
+
+  - package-ecosystem: npm
+    directory: /web
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      web-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: weekly, day: monday }

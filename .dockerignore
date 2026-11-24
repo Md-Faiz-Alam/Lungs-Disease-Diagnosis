@@ -8,6 +8,11 @@ mlruns
 notebook
 kaggle
 tests
+web
+infra
+docs
+var
+.github
 **/__pycache__
 *.ipynb
 *.png

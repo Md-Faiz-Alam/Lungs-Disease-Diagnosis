@@ -1,21 +1,24 @@
+# Full stack locally: React app on http://localhost:8080, API on http://localhost:8000/docs
 services:
   api:
     build: .
-    image: lungxray:latest
+    image: lungxray-api:local
     ports: ["8000:8000"]
     environment:
-      - API_KEY=${API_KEY:-}
+      AUTH_MODE: demo
+      STORAGE_MODE: local
+      CORS_ORIGINS: http://localhost:8080
     volumes:
       - ./models/production:/app/models/production:ro
-      - ./logs:/app/logs
+      - lungxray-data:/app/var/storage
 
-  ui:
-    image: lungxray:latest
+  web:
+    build: ./web
+    image: lungxray-web:local
     depends_on:
       api:
         condition: service_healthy
-    command: ["streamlit", "run", "app/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0"]
-    ports: ["8501:8501"]
-    environment:
-      - API_URL=http://api:8000
-      - API_KEY=${API_KEY:-}
+    ports: ["8080:8080"]
+
+volumes:
+  lungxray-data:

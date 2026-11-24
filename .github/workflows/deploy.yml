@@ -1,0 +1,143 @@
+name: Deploy
+
+# Continuous deployment to Azure. Authentication uses OIDC workload identity federation:
+# GitHub issues a short-lived token that Azure exchanges for access, so no credentials are stored.
+# One-time setup: ./infra/bootstrap.ps1 (see docs/azure-deployment.md).
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**", "notebook/**", "kaggle/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false # never interrupt a deployment half-way
+
+jobs:
+  quality-gate:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Deploy to Azure
+    needs: quality-gate
+    if: vars.AZURE_CLIENT_ID != ''
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ steps.infra.outputs.webUrl }}
+    permissions:
+      contents: read
+      id-token: write # required for OIDC
+    env:
+      IMAGE: ${{ vars.ACR_NAME }}.azurecr.io/lungxray-api:${{ github.sha }}
+      API_APP: ca-lungxray-api
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push API image
+        run: |
+          az acr login --name "${{ vars.ACR_NAME }}"
+          docker build \
+            --build-arg MODEL_URL="${{ vars.MODEL_URL }}" \
+            --build-arg MODEL_SHA256="${{ vars.MODEL_SHA256 }}" \
+            --label org.opencontainers.image.revision=${{ github.sha }} \
+            --label org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }} \
+            -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - name: Record currently running version (for rollback)
+        id: previous
+        run: |
+          image=$(az containerapp show -n "$API_APP" -g "${{ vars.AZURE_RESOURCE_GROUP }}"             --query "properties.template.containers[0].image" -o tsv 2>/dev/null || true)
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "Currently running: ${image:-<first deployment>}"
+
+      - name: Deploy infrastructure + API (Bicep)
+        id: infra
+        run: |
+          out=$(az deployment group create \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "deploy-${{ github.run_number }}" \
+            --template-file infra/main.bicep \
+            --parameters \
+              location="${{ vars.AZURE_LOCATION }}" \
+              staticWebAppLocation="${{ vars.SWA_LOCATION }}" \
+              acrName="${{ vars.ACR_NAME }}" \
+              apiImage="$IMAGE" \
+              authMode="${{ vars.AUTH_MODE || 'demo' }}" \
+              entraTenantId="${{ vars.ENTRA_TENANT_ID }}" \
+              entraApiAudience="${{ vars.ENTRA_API_AUDIENCE }}" \
+              monthlyBudget="${{ vars.MONTHLY_BUDGET || '20' }}" \
+              budgetAlertEmail="${{ vars.BUDGET_EMAIL }}" \
+            --query properties.outputs -o json)
+          echo "$out" | jq .
+          echo "apiUrl=$(echo "$out" | jq -r .apiUrl.value)" >> "$GITHUB_OUTPUT"
+          echo "webUrl=$(echo "$out" | jq -r .webUrl.value)" >> "$GITHUB_OUTPUT"
+          echo "swaName=$(echo "$out" | jq -r .staticWebAppName.value)" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test API
+        id: smoke
+        run: |
+          for i in $(seq 1 40); do
+            body=$(curl -fs "${{ steps.infra.outputs.apiUrl }}/health" || true)
+            if echo "$body" | grep -q '"model_loaded":true'; then echo "$body"; exit 0; fi
+            sleep 5
+          done
+          echo "API did not become healthy with the model loaded"; exit 1
+
+      - name: Automatic rollback on failure
+        if: failure() && steps.previous.outputs.image != '' && steps.previous.outputs.image != env.IMAGE
+        run: |
+          echo "::error::Deployment of ${{ github.sha }} failed - rolling back to ${{ steps.previous.outputs.image }}"
+          az containerapp update -n "$API_APP" -g "${{ vars.AZURE_RESOURCE_GROUP }}"             --image "${{ steps.previous.outputs.image }}" -o none
+          url=$(az containerapp show -n "$API_APP" -g "${{ vars.AZURE_RESOURCE_GROUP }}"             --query properties.configuration.ingress.fqdn -o tsv)
+          for i in $(seq 1 40); do
+            curl -fs "https://$url/health" | grep -q '"model_loaded":true' && { echo "Rollback healthy"; break; }
+            sleep 5
+          done
+          echo "### Rolled back to ${{ steps.previous.outputs.image }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build web app
+        working-directory: web
+        env:
+          VITE_API_BASE_URL: ${{ steps.infra.outputs.apiUrl }}
+          VITE_AUTH_MODE: ${{ vars.AUTH_MODE || 'demo' }}
+          VITE_ENTRA_TENANT_ID: ${{ vars.ENTRA_TENANT_ID }}
+          VITE_ENTRA_CLIENT_ID: ${{ vars.ENTRA_SPA_CLIENT_ID }}
+          VITE_API_SCOPE: ${{ vars.ENTRA_API_SCOPE }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Deploy web app (Static Web Apps)
+        run: |
+          token=$(az staticwebapp secrets list -n "${{ steps.infra.outputs.swaName }}" \
+            -g "${{ vars.AZURE_RESOURCE_GROUP }}" --query properties.apiKey -o tsv)
+          echo "::add-mask::$token"
+          npx --yes @azure/static-web-apps-cli@2 deploy web/dist \
+            --deployment-token "$token" --env production
+
+      - name: Summary
+        run: |
+          {
+            echo "### Deployed ${{ github.sha }}"
+            echo "- Web app: ${{ steps.infra.outputs.webUrl }}"
+            echo "- API docs: ${{ steps.infra.outputs.apiUrl }}/docs"
+          } >> "$GITHUB_STEP_SUMMARY"

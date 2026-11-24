@@ -50,3 +50,19 @@ def test_cli_accepts_overrides_after_subcommand(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli, "cmd_audit", lambda args, cfg: seen.setdefault("cfg", cfg))
     cli.main(["audit", "--config", str(tmp_path / "none.yaml"), "--set", "data.batch_size=7"])
     assert seen["cfg"].data.batch_size == 7
+
+
+def test_fetch_model_verifies_checksum(tmp_path):
+    import hashlib
+
+    import pytest
+
+    from lungxray.fetch_model import fetch
+
+    src = tmp_path / "remote.pt"
+    src.write_bytes(b"weights")
+    good = hashlib.sha256(b"weights").hexdigest()
+    assert fetch(src.as_uri(), tmp_path / "ok" / "model.pt", good) == good
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        fetch(src.as_uri(), tmp_path / "bad" / "model.pt", "0" * 64)
+    assert not (tmp_path / "bad" / "model.pt").exists()

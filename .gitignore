@@ -61,5 +61,8 @@ models/**/*.onnx
 .ruff_cache/
 *.egg-info/
 
-# Local editor/tool settings
-.claude/
+
+# Local runtime data from the API (studies stored by LocalRepository)
+var/
+web/dist/
+web/node_modules/
