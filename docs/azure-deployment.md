@@ -34,6 +34,16 @@ flowchart LR
 | Supply chain | All Python dependencies are pinned in `requirements-lock.txt` (reproducible images). The model is downloaded at build time from a GitHub Release and **verified by SHA-256**. Images are tagged by git SHA and scanned by Trivy, the container runs as a non-root user, CodeQL analyses every change, and every deploy is smoke-tested before the web app goes live. |
 | Cost | No paid registry (GitHub Container Registry is free), Container Apps scales to zero, Static Web Apps is on the free tier, Log Analytics ingestion is capped at 1 GB/day, and a budget alert (`infra/budget.bicep`, created once by bootstrap so the alert e-mail never reaches the public CI logs) fires at 80% actual / 100% forecast spend. |
 
+## Access control: who can change what
+
+| Asset | Who can change it | Enforced by |
+|---|---|---|
+| Code on `main` | Repository admin only | Ruleset `protect-main`: no deletion or force-push; everyone else must open a PR that passes CI, and only the admin can merge |
+| Pull requests from forks | Workflows don't run until the admin approves | Actions setting: approval required for all external contributors |
+| Azure resources | Subscription owner | Azure RBAC on the subscription |
+| Deployments to Azure | Only workflows running on `main` | `production` environment allows only `main`, and the OIDC federated credential trusts only that environment |
+| Running app's data | The API's managed identity only | Storage RBAC; account keys disabled |
+
 ## One-time setup (about 15 minutes)
 
 Prerequisites: an Azure subscription where you are Owner (Azure for Students works), the

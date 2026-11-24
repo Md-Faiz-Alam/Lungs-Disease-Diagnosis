@@ -132,7 +132,15 @@ Write-Host "  $modelUrl"
 Write-Host "  sha256 $sha"
 
 Step "GitHub environment and repository variables"
-gh api -X PUT "repos/$Repo/environments/production" --silent
+# Only the main branch may deploy: Azure trusts this environment (OIDC subject), so no other
+# branch, fork or pull request can ever obtain Azure access.
+'{"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}' |
+  gh api -X PUT "repos/$Repo/environments/production" --input - --silent
+$policies = gh api "repos/$Repo/environments/production/deployment-branch-policies" --jq '.branch_policies[].name'
+if (-not ($policies -contains "main")) {
+  gh api -X POST "repos/$Repo/environments/production/deployment-branch-policies" -f name=main -f type=branch --silent
+}
+Write-Host "  environment 'production': deployments allowed from main only"
 $vars = [ordered]@{
   AZURE_CLIENT_ID        = $deployId.clientId
   AZURE_TENANT_ID        = $tenantId
