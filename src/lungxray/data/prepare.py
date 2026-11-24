@@ -24,8 +24,9 @@ class PreparedData:
         for r in self.records:
             out.setdefault(r.split, {}).setdefault(r.label, 0)
             out[r.split][r.label] += 1
-        out["test_evaluated"] = {"total": sum(
-            1 for r in self.records if r.split == "test" and r.path not in self.excluded_test)}
+        out["test_evaluated"] = {
+            "total": sum(1 for r in self.records if r.split == "test" and r.path not in self.excluded_test)
+        }
         return out
 
 
