@@ -1,0 +1,13 @@
+# Language statistics: the v0 exploration notebook is documentation, not the codebase
+*.ipynb linguist-documentation
+# Lock files are generated
+requirements-lock.txt linguist-generated
+web/package-lock.json linguist-generated
+
+# Consistent line endings across Windows and Linux (CI, containers)
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.png binary
+*.jpg binary
+*.pt binary
+*.pth binary
