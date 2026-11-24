@@ -5,7 +5,7 @@
 .DESCRIPTION
   Idempotent: safe to re-run. It
     1. registers the Azure resource providers the app needs
-    2. creates the resource group and a container registry (Basic, admin user disabled)
+    2. creates the resource group (the API image lives in GitHub Container Registry, free)
     3. creates a GitHub deploy identity federated via OIDC (no client secret) restricted to this
        repository's "production" environment, with least-privilege roles on the resource group
     4. uploads the production model to a GitHub Release and records its SHA-256
@@ -18,7 +18,7 @@
 [CmdletBinding()]
 param(
   [string]$AppName = "lungxray",
-  [string]$Location = "centralindia",
+  [string]$Location = "uaenorth",
   [ValidateSet("westus2", "centralus", "eastus2", "westeurope", "eastasia")]
   [string]$StaticWebAppLocation = "eastasia",
   [string]$ResourceGroup = "rg-lungxray-prod",
@@ -26,7 +26,7 @@ param(
   [string]$ModelPath = "models/production/model.pt",
   [string]$ModelTag = "model-v1.0.0",
   [string]$BudgetEmail = "",
-  [int]$MonthlyBudget = 20
+  [int]$MonthlyBudget = 2  # USD, this resource group only
 )
 $ErrorActionPreference = "Stop"
 
@@ -46,26 +46,14 @@ Write-Host "Repository:   $Repo"
 
 Step "Registering resource providers"
 foreach ($ns in "Microsoft.App", "Microsoft.OperationalInsights", "Microsoft.Insights", "Microsoft.Web",
-                "Microsoft.ContainerRegistry", "Microsoft.Storage", "Microsoft.ManagedIdentity", "Microsoft.Consumption") {
+                "Microsoft.Storage", "Microsoft.ManagedIdentity", "Microsoft.Consumption") {
   Invoke-Az provider register --namespace $ns --wait | Out-Null
   Write-Host "  $ns"
 }
 
 Step "Resource group $ResourceGroup ($Location)"
 Invoke-Az group create -n $ResourceGroup -l $Location --tags app=$AppName environment=production managedBy=bootstrap -o none
-
-Step "Container registry"
 $rgId = Invoke-Az group show -n $ResourceGroup --query id -o tsv
-$hash = [System.BitConverter]::ToString(
-  [System.Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($rgId))
-).Replace("-", "").Substring(0, 8).ToLower()
-$acrName = "acr$AppName$hash"
-$existing = az acr show -n $acrName -g $ResourceGroup --query name -o tsv 2>$null
-if (-not $existing) {
-  Invoke-Az acr create -n $acrName -g $ResourceGroup --sku Basic --admin-enabled false -o none
-}
-$acrId = Invoke-Az acr show -n $acrName -g $ResourceGroup --query id -o tsv
-Write-Host "  $acrName"
 
 Step "GitHub deploy identity (OIDC federation, no secrets)"
 $idName = "id-$AppName-github-deploy"
@@ -96,9 +84,8 @@ function Grant($role, $scope, $condition) {
   throw "Could not assign $role"
 }
 Grant "Contributor" $rgId $null
-Grant "AcrPush" $acrId $null
-# May only create/delete assignments of the three data-plane roles the app needs (ABAC condition).
-$allowed = "7f951dda-4ed3-4680-a7ca-43fe172d538d, ba92f5b4-2d11-453d-a403-e96b0029c9fe, 0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3"
+# May only create/delete assignments of the two storage data roles the app needs (ABAC condition).
+$allowed = "ba92f5b4-2d11-453d-a403-e96b0029c9fe, 0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3"
 $condition = "((!(ActionMatches{'Microsoft.Authorization/roleAssignments/write'})) OR " +
   "(@Request[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {$allowed})) AND " +
   "((!(ActionMatches{'Microsoft.Authorization/roleAssignments/delete'})) OR " +
@@ -143,7 +130,6 @@ $vars = [ordered]@{
   AZURE_RESOURCE_GROUP   = $ResourceGroup
   AZURE_LOCATION         = $Location
   SWA_LOCATION           = $StaticWebAppLocation
-  ACR_NAME               = $acrName
   MODEL_URL              = $modelUrl
   MODEL_SHA256           = $sha
   MONTHLY_BUDGET         = "$MonthlyBudget"
@@ -153,6 +139,10 @@ foreach ($k in $vars.Keys) {
   gh variable set $k --repo $Repo --body $vars[$k]
   Write-Host "  $k"
 }
+
+Write-Host "`nIMPORTANT (one time): after the first deployment pushes the image, make the package public:" -ForegroundColor Yellow
+Write-Host "  https://github.com/$Repo/pkgs/container/lungxray-api  ->  Package settings  ->  Change visibility  ->  Public" -ForegroundColor Yellow
+Write-Host "  (the workflow stops with this same message until you do; then re-run it)" -ForegroundColor Yellow
 
 Step "Starting the first deployment"
 # From now on every push to main deploys automatically; this run just deploys the current code once.

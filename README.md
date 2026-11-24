@@ -137,17 +137,19 @@ flowchart LR
     U[Browser] --> SWA[Static Web Apps<br/>React SPA]
     U -->|Entra ID token| CA[Container Apps<br/>FastAPI + model]
     CA -->|managed identity| ST[(Blob + Table Storage)]
-    CA -->|managed identity| ACR[(Container Registry)]
+    GHCR[(GitHub Container Registry)] -->|image| CA
     CA --> AI[Application Insights]
     GH[GitHub Actions] -->|OIDC, no secrets| CA
 ```
 
 **No credentials exist anywhere:**
 - GitHub authenticates with OIDC federation.
-- The API reaches Storage and the registry through a managed identity, and storage account keys are disabled.
+- The API reaches Storage through a managed identity, and storage account keys are disabled.
+- The image is pushed with a per-run token and pulled from a public package, so there are no registry credentials.
 - The deploy identity has least privilege, enforced by an ABAC condition on role assignments.
 
-Images are deleted after 30 days, the API scales to zero, and a budget alert guards spend. Full design,
+Images are deleted after 30 days, the API scales to zero, there's no paid registry, and a budget alert guards
+spend: the whole deployment costs under $0.50/month. Full design,
 security table, setup and operations: **[docs/azure-deployment.md](docs/azure-deployment.md)**.
 
 ## What makes it production-grade

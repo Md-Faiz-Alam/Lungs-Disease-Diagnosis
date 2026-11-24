@@ -13,25 +13,25 @@ flowchart LR
     CA -->|validates JWT via JWKS| ENTRA
     CA -->|managed identity| BLOB[(Blob Storage<br/>images, 30-day retention)]
     CA -->|managed identity| TABLE[(Table Storage<br/>studies + audit log)]
-    CA -->|managed identity, AcrPull| ACR[(Container Registry)]
+    GHCR[(GitHub Container Registry<br/>public image, free)] -->|anonymous pull| CA
     CA --> AI[Application Insights<br/>+ Log Analytics]
     GH[GitHub Actions] -->|OIDC federation, no secrets| ARM[Azure Resource Manager]
-    GH -->|push image| ACR
+    GH -->|push image, per-run token| GHCR
 ```
 
 ## Security design
 
 | Concern | How it is handled |
 |---|---|
-| Credentials | **None stored anywhere.** GitHub deploys through OIDC workload identity federation, and the API reaches Storage and ACR through a user-assigned managed identity. Storage account keys are disabled (`allowSharedKeyAccess: false`) and the ACR admin user is off. |
-| Least privilege | The deploy identity is `Contributor` on one resource group only, plus `Role Based Access Control Administrator` with an **ABAC condition** that lets it grant only `AcrPull`, `Storage Blob Data Contributor` and `Storage Table Data Contributor`. The federated credential accepts tokens only from this repo's `production` environment. |
+| Credentials | **None stored anywhere.** GitHub deploys through OIDC workload identity federation, and the API reaches Storage through a user-assigned managed identity. Storage account keys are disabled (`allowSharedKeyAccess: false`). The image is pushed with the per-run `GITHUB_TOKEN` and pulled anonymously (public package), so no registry credentials exist. |
+| Least privilege | The deploy identity is `Contributor` on one resource group only, plus `Role Based Access Control Administrator` with an **ABAC condition** that lets it grant only `Storage Blob Data Contributor` and `Storage Table Data Contributor`. The federated credential accepts tokens only from this repo's `production` environment. |
 | User authentication | Microsoft Entra ID with the SPA authorization-code flow + PKCE (no client secret). The API validates the token signature against the tenant JWKS, plus issuer, audience, expiry and the `Studies.ReadWrite` scope. |
 | Data isolation | Studies are partitioned by the user's Entra object ID, so one clinician cannot read another's studies (tested). |
 | Patient data | DICOM is de-identified on receipt: only pixel data and an allow-list of technical tags are kept, and the original file is never stored. Images are auto-deleted after 30 days (lifecycle policy). Blob soft delete lasts 7 days. Storage uses double encryption at rest and TLS 1.2+. |
 | Auditability | Every upload, view, review, report download and deletion is written to an append-only audit table. |
 | Web hardening | Content-Security-Policy, HSTS, `X-Frame-Options: DENY`, `nosniff`, no-referrer. Tokens are kept in `sessionStorage` (cleared when the tab closes on shared workstations). API responses are `Cache-Control: no-store`. |
 | Supply chain | The model is downloaded at build time from a GitHub Release and **verified by SHA-256**. Images are tagged by git SHA, the container runs as a non-root user, and every deploy is smoke-tested before the web app goes live. |
-| Cost | Container Apps scales to zero, Static Web Apps is on the free tier, Log Analytics ingestion is capped at 1 GB/day, and a budget alert fires at 80% actual / 100% forecast spend. |
+| Cost | No paid registry (GitHub Container Registry is free), Container Apps scales to zero, Static Web Apps is on the free tier, Log Analytics ingestion is capped at 1 GB/day, and a budget alert fires at 80% actual / 100% forecast spend. |
 
 ## One-time setup (about 15 minutes)
 
@@ -63,8 +63,11 @@ az bicep build --file infra/main.bicep --stdout > $null   # validate the templat
 ./infra/bootstrap.ps1 -BudgetEmail you@example.com
 ```
 
-It prints each step: providers, resource group, registry, deploy identity, roles, model release, and
-GitHub variables. It finishes by starting the first deployment. Follow it with `gh run watch`; the run
+It prints each step: providers, resource group, deploy identity, roles, model release, and GitHub variables.
+
+**One-time step after the first image push:** open `https://github.com/<owner>/<repo>/pkgs/container/lungxray-api`
+→ *Package settings* → *Change visibility* → **Public**, then re-run the workflow. Azure pulls the image
+anonymously, so it must be public. Until then the workflow stops with this same instruction. It finishes by starting the first deployment. Follow it with `gh run watch`; the run
 summary shows the web app URL and the API docs URL.
 
 ## Continuous deployment
@@ -124,16 +127,16 @@ Some university tenants block app registration for students. In that case keep d
 |---|---|
 | Live logs | `az containerapp logs show -n ca-lungxray-api -g rg-lungxray-prod --follow` |
 | Request traces, failures, latency | Azure portal → Application Insights → *Failures* / *Performance* |
-| Roll back | `az containerapp update -n ca-lungxray-api -g rg-lungxray-prod --image <acr>.azurecr.io/lungxray-api:<older-sha>` |
+| Roll back | `az containerapp update -n ca-lungxray-api -g rg-lungxray-prod --image ghcr.io/<owner>/lungxray-api:<older-sha>` |
 | New model | Promote it locally, re-run `bootstrap.ps1 -ModelTag model-v1.1.0` (new release + checksum), push |
 | Cost so far | `az consumption usage list --query "[].{date:usageStart, cost:pretaxCost}" -o table` |
 | Tear down everything | `az group delete -n rg-lungxray-prod --yes` |
 
 ## Expected cost
 
-With low traffic it is effectively a few dollars a month, well inside the Azure for Students credit:
+With low traffic it costs **under $0.50 a month**, so it fits a $5/month student budget:
 
-- **Container Registry (Basic):** about $5/month. This is the main fixed cost.
+- **Container registry:** $0 (GitHub Container Registry, public image).
 - **Container Apps:** the consumption free grant covers light use, and it scales to zero when idle.
 - **Static Web Apps:** free tier.
 - **Storage:** a few cents for images and tables.

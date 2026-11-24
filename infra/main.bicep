@@ -1,13 +1,13 @@
 // LungXray production environment (resource-group scope).
 //
-// Secretless by design: the API reaches Storage and the container registry through a
-// user-assigned managed identity; GitHub Actions deploys via OIDC federation. No keys,
-// connection strings or client secrets exist anywhere.
+// Secretless by design: the API reaches Storage through a user-assigned managed identity,
+// GitHub Actions deploys via OIDC federation, and the API image is pulled anonymously from
+// GitHub Container Registry (public package, free). No keys or client secrets exist anywhere.
 //
 //   Static Web App (React SPA)  ──HTTPS──►  Container App (FastAPI + model)
 //                                              │ managed identity
-//                        ┌─────────────────────┼──────────────────────┐
-//                   Blob (images)       Table (studies, audit)     ACR (image pull)
+//                        ┌─────────────────────┴──────────────────────┐
+//                   Blob (images)                          Table (studies, audit)
 //                                              │
 //                          Log Analytics + Application Insights (logs, traces)
 
@@ -24,10 +24,7 @@ param location string = resourceGroup().location
 @allowed(['westus2', 'centralus', 'eastus2', 'westeurope', 'eastasia'])
 param staticWebAppLocation string = 'eastus2'
 
-@description('Existing Azure Container Registry created by infra/bootstrap.ps1.')
-param acrName string
-
-@description('Full image reference, e.g. myacr.azurecr.io/lungxray-api:<git-sha>.')
+@description('Full image reference, e.g. ghcr.io/<owner>/lungxray-api:<git-sha> (public package).')
 param apiImage string
 
 @allowed(['demo', 'entra'])
@@ -40,8 +37,8 @@ param entraApiAudience string = ''
 @minValue(1)
 param imageRetentionDays int = 30
 
-@description('Monthly budget in the subscription currency; 0 disables the budget alert.')
-param monthlyBudget int = 20
+@description('Monthly budget for this resource group in the billing currency (USD); 0 disables the alert.')
+param monthlyBudget int = 2
 param budgetAlertEmail string = ''
 param budgetStartDate string = utcNow('yyyy-MM-01')
 
@@ -50,7 +47,6 @@ var tags = { app: appName, environment: 'production', managedBy: 'bicep' }
 
 // Built-in role definition IDs
 var roles = {
-  acrPull: '7f951dda-4ed3-4680-a7ca-43fe172d538d'
   blobDataContributor: 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
   tableDataContributor: '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
 }
@@ -164,21 +160,6 @@ resource tableRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
-// ---------- Container registry (created by bootstrap) ----------
-resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
-  name: acrName
-}
-
-resource acrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(acr.id, apiIdentity.id, roles.acrPull)
-  scope: acr
-  properties: {
-    principalId: apiIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.acrPull)
-  }
-}
-
 // ---------- Front end ----------
 resource web 'Microsoft.Web/staticSites@2023-12-01' = {
   name: 'stapp-${appName}-${suffix}'
@@ -227,7 +208,6 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
         transport: 'auto'
         allowInsecure: false
       }
-      registries: [{ server: acr.properties.loginServer, identity: apiIdentity.id }]
     }
     template: {
       containers: [
@@ -274,7 +254,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
       }
     }
   }
-  dependsOn: [acrPullRole, blobRole, tableRole]
+  dependsOn: [blobRole, tableRole]
 }
 
 // ---------- Cost guardrail ----------

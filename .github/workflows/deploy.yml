@@ -32,8 +32,8 @@ jobs:
     permissions:
       contents: read
       id-token: write # required for OIDC
+      packages: write # push the API image to GitHub Container Registry
     env:
-      IMAGE: ${{ vars.ACR_NAME }}.azurecr.io/lungxray-api:${{ github.sha }}
       API_APP: ca-lungxray-api
     steps:
       - uses: actions/checkout@v5
@@ -45,9 +45,18 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/lungxray-api:${GITHUB_SHA}" >> "$GITHUB_ENV"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }} # short-lived token issued per run, nothing stored
+
       - name: Build and push API image
         run: |
-          az acr login --name "${{ vars.ACR_NAME }}"
           docker build \
             --build-arg MODEL_URL="${{ vars.MODEL_URL }}" \
             --build-arg MODEL_SHA256="${{ vars.MODEL_SHA256 }}" \
@@ -55,6 +64,15 @@ jobs:
             --label org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }} \
             -t "$IMAGE" .
           docker push "$IMAGE"
+
+      - name: Check the image is publicly pullable
+        run: |
+          docker logout ghcr.io
+          if ! docker manifest inspect "$IMAGE" > /dev/null 2>&1; then
+            echo "::error::The package is private, so Azure cannot pull it. One-time fix: open https://github.com/${{ github.repository }}/pkgs/container/lungxray-api -> Package settings -> Change visibility -> Public, then re-run this workflow."
+            exit 1
+          fi
+          echo "Image is public: $IMAGE"
 
       - name: Record currently running version (for rollback)
         id: previous
@@ -73,12 +91,11 @@ jobs:
             --parameters \
               location="${{ vars.AZURE_LOCATION }}" \
               staticWebAppLocation="${{ vars.SWA_LOCATION }}" \
-              acrName="${{ vars.ACR_NAME }}" \
               apiImage="$IMAGE" \
               authMode="${{ vars.AUTH_MODE || 'demo' }}" \
               entraTenantId="${{ vars.ENTRA_TENANT_ID }}" \
               entraApiAudience="${{ vars.ENTRA_API_AUDIENCE }}" \
-              monthlyBudget="${{ vars.MONTHLY_BUDGET || '20' }}" \
+              monthlyBudget="${{ vars.MONTHLY_BUDGET || '2' }}" \
               budgetAlertEmail="${{ vars.BUDGET_EMAIL }}" \
             --query properties.outputs -o json)
           echo "$out" | jq .
