@@ -10,12 +10,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# CPU-only torch keeps the image ~4x smaller than the default CUDA wheels
-RUN pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+# Exact, locked dependency versions (requirements-lock.txt) make every build reproducible.
+# CPU-only torch keeps the image ~4x smaller than the default CUDA wheels.
+COPY requirements-lock.txt ./
+RUN pip install --upgrade pip setuptools  && pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements-lock.txt
 
 COPY pyproject.toml README.md ./
 COPY src ./src
-RUN pip install ".[api,azure]"
+RUN pip install --no-deps .
 
 COPY models ./models
 

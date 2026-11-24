@@ -2,6 +2,7 @@
 
 import io
 import time
+import uuid
 
 import jwt
 import numpy as np
@@ -55,10 +56,53 @@ def demo_client(tiny_bundle, tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_MODE", "local")
     monkeypatch.setenv("LOCAL_STORAGE_DIR", str(tmp_path / "store"))
     monkeypatch.delenv("API_KEY", raising=False)
+    monkeypatch.delenv("RATE_LIMIT_INFERENCE", raising=False)
     from lungxray.api import app
 
-    with TestClient(app) as c:
+    with TestClient(app, headers={"X-Demo-Session": str(uuid.uuid4())}) as c:
         yield c
+
+
+def test_demo_visitors_are_isolated(demo_client):
+    files = {"file": ("x.png", _png(fake_xray(4, 1, size=200)), "image/png")}
+    sid = demo_client.post("/api/studies", files=files).json()["id"]
+    other = {"X-Demo-Session": str(uuid.uuid4())}
+    assert demo_client.get("/api/studies", headers=other).json() == []
+    assert demo_client.get(f"/api/studies/{sid}", headers=other).status_code == 404
+    assert demo_client.get("/api/studies", headers={"X-Demo-Session": ""}).status_code == 400
+    assert demo_client.get("/api/studies", headers={"X-Demo-Session": "not-a-uuid"}).status_code == 400
+
+
+def test_inference_is_rate_limited_and_size_capped(tiny_bundle, tmp_path, monkeypatch):
+    monkeypatch.setenv("MODEL_PATH", str(tiny_bundle))
+    monkeypatch.setenv("AUTH_MODE", "demo")
+    monkeypatch.setenv("STORAGE_MODE", "local")
+    monkeypatch.setenv("LOCAL_STORAGE_DIR", str(tmp_path / "store"))
+    monkeypatch.setenv("PREDICTION_LOG", str(tmp_path / "log.jsonl"))
+    monkeypatch.setenv("RATE_LIMIT_INFERENCE", "2/60")
+    monkeypatch.setenv("MAX_UPLOAD_MB", "1")
+    from lungxray.api import app
+
+    files = {"file": ("x.png", _png(fake_xray(4, 1, size=200)), "image/png")}
+    with TestClient(app, headers={"X-Demo-Session": str(uuid.uuid4())}) as c:
+        assert c.post("/api/studies", files=files).headers["X-Request-ID"]
+        assert c.post("/api/studies", files=files).status_code == 201
+        limited = c.post("/api/studies", files=files)
+        assert limited.status_code == 429 and int(limited.headers["Retry-After"]) > 0
+        assert c.get("/api/studies").status_code == 200  # reads are not limited
+        big = {"file": ("big.png", b"0" * (3 * 1024 * 1024), "image/png")}
+        assert c.post("/api/studies", files=big).status_code == 413
+
+
+def test_sliding_window_limiter_frees_slots():
+    from lungxray.service.ratelimit import SlidingWindowLimiter
+
+    now = [0.0]
+    lim = SlidingWindowLimiter(2, 10, clock=lambda: now[0])
+    assert lim.check("a") == 0 and lim.check("a") == 0
+    assert lim.check("a") > 0 and lim.check("b") == 0  # other clients unaffected
+    now[0] = 10.5
+    assert lim.check("a") == 0
 
 
 def test_study_lifecycle(demo_client):

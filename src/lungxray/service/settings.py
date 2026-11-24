@@ -31,6 +31,8 @@ class Settings:
 
     cors_origins: list[str] = field(default_factory=lambda: ["http://localhost:5173"])
     legacy_api_key: str = ""  # optional X-API-Key for the original /predict endpoints
+    # model-inference requests allowed per client IP: "<count>/<seconds>"
+    rate_limit_inference: str = "30/600"
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -49,6 +51,7 @@ class Settings:
             blob_container=e("BLOB_CONTAINER", cls.blob_container),
             cors_origins=_list(e("CORS_ORIGINS", "http://localhost:5173")),
             legacy_api_key=e("API_KEY", ""),
+            rate_limit_inference=e("RATE_LIMIT_INFERENCE", cls.rate_limit_inference),
         )
 
     def validate(self) -> None:
@@ -58,6 +61,9 @@ class Settings:
             raise ValueError("AUTH_MODE=entra requires ENTRA_TENANT_ID and ENTRA_API_AUDIENCE")
         if self.storage_mode not in {"local", "azure"}:
             raise ValueError("STORAGE_MODE must be 'local' or 'azure'")
+        from lungxray.service.ratelimit import parse_rate
+
+        parse_rate(self.rate_limit_inference)
         if self.storage_mode == "azure" and not self.azure_storage_account:
             raise ValueError("STORAGE_MODE=azure requires AZURE_STORAGE_ACCOUNT")
 

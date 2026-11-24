@@ -9,16 +9,18 @@ from __future__ import annotations
 import os
 import threading
 import time
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from lungxray import __version__
 from lungxray.inference.predictor import InvalidImageError, Predictor
 from lungxray.service.auth import get_current_user
+from lungxray.service.ratelimit import SlidingWindowLimiter, client_key, parse_rate
 from lungxray.service.routes import router as clinical_router
 from lungxray.service.settings import Settings, get_settings
 from lungxray.service.storage import build_repository
@@ -32,6 +34,7 @@ if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):  # traces, requests,
     configure_azure_monitor(logger_name="lungxray")
 ALLOWED_TYPES = {"image/jpeg", "image/png", "image/jpg", "application/octet-stream"}
 MAX_BATCH = 16
+INFERENCE_PATHS = {"/api/studies", "/predict", "/predict/batch"}
 
 
 class Prediction(BaseModel):
@@ -80,6 +83,7 @@ async def lifespan(app: FastAPI):
         log.error("Model file not found at %s - prediction endpoints will return 503", settings.model_path)
     app.state.predictor = state["predictor"]
     app.state.repo = build_repository(settings)
+    app.state.limiter = SlidingWindowLimiter(*parse_rate(settings.rate_limit_inference))
     log.info("auth=%s storage=%s", settings.auth_mode, settings.storage_mode)
     yield
 
@@ -92,18 +96,35 @@ app = FastAPI(
     "medical device.",
     lifespan=lifespan,
 )
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=Settings.from_env().cors_origins,
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
-    allow_headers=["Authorization", "Content-Type"],
-    max_age=3600,
-)
+
+
+@app.middleware("http")
+async def guard_inference(request: Request, call_next):
+    """Reject oversized uploads before reading the body, and rate-limit model inference per client."""
+    if request.method == "POST" and request.url.path in INFERENCE_PATHS:
+        settings = get_settings()
+        cap_mb = settings.max_upload_mb * (MAX_BATCH if request.url.path.endswith("/batch") else 1) + 1
+        length = request.headers.get("content-length")
+        if length and length.isdigit() and int(length) > cap_mb * 1024 * 1024:
+            return JSONResponse({"detail": f"Request exceeds {cap_mb:.0f} MB"}, status_code=413)
+        limiter = getattr(request.app.state, "limiter", None)
+        retry = limiter.check(client_key(request)) if limiter else 0.0
+        if retry:
+            return JSONResponse(
+                {"detail": "Too many analyses from this client; please wait and try again."},
+                status_code=429,
+                headers={"Retry-After": str(int(retry) + 1)},
+            )
+    return await call_next(request)
 
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
+    # Correlation ID: echoed back and attached to error logs so a user report can be traced.
+    rid = request.headers.get("x-request-id", "")[:64] or uuid.uuid4().hex
+    request.state.request_id = rid
     response = await call_next(request)
+    response.headers["X-Request-ID"] = rid
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
@@ -113,6 +134,15 @@ async def security_headers(request: Request, call_next):
 
 
 app.include_router(clinical_router)
+# Added last = outermost, so CORS headers are present even on 413/429 responses from the guards above.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=Settings.from_env().cors_origins,
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type", "X-Demo-Session", "X-Request-ID"],
+    expose_headers=["X-Request-ID", "Retry-After"],
+    max_age=3600,
+)
 
 
 def require_key(request: Request, x_api_key: str | None = Header(default=None)) -> None:
@@ -152,7 +182,7 @@ def _predict_one(predictor: Predictor, data: bytes, explain: bool) -> dict:
         raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:  # pragma: no cover - defensive
         state["stats"].record(None, time.perf_counter() - t0, "error")
-        log.exception("Prediction failed")
+        log.exception("Prediction failed")  # request id is in the X-Request-ID response header
         raise HTTPException(status_code=500, detail="Prediction failed") from e
     state["stats"].record(result["prediction"], time.perf_counter() - t0, "ok")
     return result

@@ -10,6 +10,7 @@
        repository's "production" environment, with least-privilege roles on the resource group
     4. uploads the production model to a GitHub Release and records its SHA-256
     5. stores the non-secret IDs as GitHub repository variables and creates the environment
+    6. creates a monthly cost alert (your e-mail stays in Azure; it is never sent to GitHub)
   After this, every push to main deploys automatically (.github/workflows/deploy.yml).
 
 .EXAMPLE
@@ -54,6 +55,15 @@ foreach ($ns in "Microsoft.App", "Microsoft.OperationalInsights", "Microsoft.Ins
 Step "Resource group $ResourceGroup ($Location)"
 Invoke-Az group create -n $ResourceGroup -l $Location --tags app=$AppName environment=production managedBy=bootstrap -o none
 $rgId = Invoke-Az group show -n $ResourceGroup --query id -o tsv
+
+if ($BudgetEmail) {
+  Step "Monthly cost alert ($MonthlyBudget, billing currency)"
+  Invoke-Az deployment group create -g $ResourceGroup -n budget --template-file "$PSScriptRoot/budget.bicep" `
+    --parameters amount=$MonthlyBudget alertEmail=$BudgetEmail -o none
+  Write-Host "  alerts at 80% actual and 100% forecast spend"
+} else {
+  Write-Host "  (no -BudgetEmail given: skipping the cost alert)" -ForegroundColor Yellow
+}
 
 Step "GitHub deploy identity (OIDC federation, no secrets)"
 $idName = "id-$AppName-github-deploy"
@@ -132,9 +142,7 @@ $vars = [ordered]@{
   SWA_LOCATION           = $StaticWebAppLocation
   MODEL_URL              = $modelUrl
   MODEL_SHA256           = $sha
-  MONTHLY_BUDGET         = "$MonthlyBudget"
 }
-if ($BudgetEmail) { $vars["BUDGET_EMAIL"] = $BudgetEmail }
 foreach ($k in $vars.Keys) {
   gh variable set $k --repo $Repo --body $vars[$k]
   Write-Host "  $k"

@@ -46,7 +46,7 @@ export function SignInPage() {
               )}
             </button>
             <span className="text-sm text-slate-500">
-              {mode === 'entra' ? 'Organisational account required' : 'No account needed · sample X-rays included'}
+              {mode === 'entra' ? 'Organisational account required' : 'No account needed · private workspace in your browser · sample X-rays included'}
             </span>
           </div>
         </div>

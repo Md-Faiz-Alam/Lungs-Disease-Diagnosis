@@ -1,6 +1,7 @@
 import { InteractionRequiredAuthError, type AccountInfo } from '@azure/msal-browser'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { setTokenProvider } from '../api/client'
+import { resetDemoSession } from '../lib/demoSession'
 import { config, type AuthMode } from '../config'
 import { loginScopes, msalInstance } from './msal'
 
@@ -97,6 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       /* ignore */
     }
+    resetDemoSession() // next visit starts with a fresh, empty workspace
     setDemoActive(false)
   }, [])
 

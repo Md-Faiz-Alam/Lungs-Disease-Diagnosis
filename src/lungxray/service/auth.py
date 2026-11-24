@@ -2,11 +2,14 @@
 
 * ``entra``: validates Microsoft Entra ID (Azure AD) v2.0 access tokens issued to the SPA for
   this API: signature via the tenant's JWKS, issuer, audience, expiry and the delegated scope.
-* ``demo``: every request is a single shared demo clinician (public portfolio demo).
+* ``demo``: public portfolio demo. Each browser gets its own anonymous, isolated workspace,
+  identified by a random UUID sent in the ``X-Demo-Session`` header, so visitors never see each
+  other's uploads.
 """
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -24,7 +27,20 @@ class User:
     is_demo: bool = False
 
 
-DEMO_USER = User(id="demo-clinician", name="Demo Clinician", email="", is_demo=True)
+DEMO_SESSION_HEADER = "X-Demo-Session"
+
+
+def demo_user(session: str | None) -> User:
+    """Anonymous per-browser workspace. The session must be a random (v4) UUID."""
+    try:
+        sid = uuid.UUID(session or "")
+    except ValueError:
+        sid = None
+    if sid is None or sid.version != 4:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"Demo mode requires a UUID v4 {DEMO_SESSION_HEADER} header"
+        )
+    return User(id=f"demo-{sid.hex}", name="Demo Clinician", is_demo=True)
 
 
 @lru_cache(maxsize=4)
@@ -65,7 +81,7 @@ def user_from_claims(claims: dict, required_scope: str) -> User:
 
 def get_current_user(request: Request, settings: Settings = Depends(get_settings)) -> User:
     if settings.auth_mode == "demo":
-        return DEMO_USER
+        return demo_user(request.headers.get(DEMO_SESSION_HEADER))
     header = request.headers.get("Authorization", "")
     if not header.lower().startswith("bearer "):
         raise HTTPException(

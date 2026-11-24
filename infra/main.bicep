@@ -37,11 +37,6 @@ param entraApiAudience string = ''
 @minValue(1)
 param imageRetentionDays int = 30
 
-@description('Monthly budget for this resource group in the billing currency (USD); 0 disables the alert.')
-param monthlyBudget int = 2
-param budgetAlertEmail string = ''
-param budgetStartDate string = utcNow('yyyy-MM-01')
-
 var suffix = uniqueString(resourceGroup().id)
 var tags = { app: appName, environment: 'production', managedBy: 'bicep' }
 
@@ -255,33 +250,6 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
     }
   }
   dependsOn: [blobRole, tableRole]
-}
-
-// ---------- Cost guardrail ----------
-resource budget 'Microsoft.Consumption/budgets@2023-11-01' = if (monthlyBudget > 0 && !empty(budgetAlertEmail)) {
-  name: 'budget-${appName}'
-  properties: {
-    category: 'Cost'
-    amount: monthlyBudget
-    timeGrain: 'Monthly'
-    timePeriod: { startDate: budgetStartDate }
-    notifications: {
-      actual80: {
-        enabled: true
-        operator: 'GreaterThan'
-        threshold: 80
-        thresholdType: 'Actual'
-        contactEmails: [budgetAlertEmail]
-      }
-      forecast100: {
-        enabled: true
-        operator: 'GreaterThan'
-        threshold: 100
-        thresholdType: 'Forecasted'
-        contactEmails: [budgetAlertEmail]
-      }
-    }
-  }
 }
 
 output apiUrl string = 'https://${api.properties.configuration.ingress.fqdn}'

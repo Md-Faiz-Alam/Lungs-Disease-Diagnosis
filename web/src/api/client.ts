@@ -1,4 +1,5 @@
 import { config } from '../config'
+import { getDemoSessionId } from '../lib/demoSession'
 import type { AuditEvent, Me, ModelInfo, ReviewStatus, Study } from './types'
 
 type TokenProvider = () => Promise<string | null>
@@ -21,6 +22,7 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
   const token = await tokenProvider()
   const headers = new Headers(init.headers)
   if (token) headers.set('Authorization', `Bearer ${token}`)
+  if (config.authMode === 'demo') headers.set('X-Demo-Session', getDemoSessionId())
   const res = await fetch(`${config.apiBaseUrl}${path}`, { ...init, headers })
   if (!res.ok) {
     let detail = res.statusText

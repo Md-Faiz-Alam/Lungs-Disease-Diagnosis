@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
 import { ClipboardList, FileClock, Gauge, LogOut, PlusCircle, Stethoscope } from 'lucide-react'
 import { Suspense } from 'react'
@@ -26,6 +27,11 @@ export function Logo({ dark = false }: { dark?: boolean }) {
 
 export function AppShell() {
   const { user, signOut, mode } = useAuth()
+  const queryClient = useQueryClient()
+  const handleSignOut = () => {
+    queryClient.clear() // never show the previous user's data after signing out
+    void signOut()
+  }
   return (
     <div className="flex min-h-screen">
       <aside className="hidden w-60 shrink-0 flex-col border-r border-slate-800 bg-slate-900 px-3 py-5 md:flex">
@@ -53,7 +59,7 @@ export function AppShell() {
         <div className="mt-auto rounded-lg border border-slate-800 p-3">
           <p className="truncate text-sm font-medium text-slate-200">{user?.name}</p>
           <p className="truncate text-xs text-slate-500">{mode === 'demo' ? 'Demo mode' : user?.email}</p>
-          <button type="button" onClick={() => void signOut()} className="mt-3 flex items-center gap-1.5 text-xs text-slate-400 hover:text-white">
+          <button type="button" onClick={handleSignOut} className="mt-3 flex items-center gap-1.5 text-xs text-slate-400 hover:text-white">
             <LogOut aria-hidden className="size-3.5" /> Sign out
           </button>
         </div>

@@ -95,8 +95,6 @@ jobs:
               authMode="${{ vars.AUTH_MODE || 'demo' }}" \
               entraTenantId="${{ vars.ENTRA_TENANT_ID }}" \
               entraApiAudience="${{ vars.ENTRA_API_AUDIENCE }}" \
-              monthlyBudget="${{ vars.MONTHLY_BUDGET || '2' }}" \
-              budgetAlertEmail="${{ vars.BUDGET_EMAIL }}" \
             --query properties.outputs -o json)
           echo "$out" | jq .
           echo "apiUrl=$(echo "$out" | jq -r .apiUrl.value)" >> "$GITHUB_OUTPUT"

@@ -23,16 +23,19 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-      - name: Install (CPU torch)
+      - name: Install (locked versions, CPU torch)
         run: |
-          pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+          pip install --upgrade pip setuptools
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements-lock.txt
           pip install -e ".[api,azure,export,dev]"
       - name: Lint
         run: |
           ruff check src tests kaggle
           ruff format --check src tests kaggle
-      - name: Tests
-        run: pytest -q
+      - name: Tests (coverage gate 88%)
+        run: pytest -q --cov=lungxray --cov-report=term-missing:skip-covered --cov-fail-under=88
+      - name: Dependency vulnerability audit
+        run: pip-audit --skip-editable --progress-spinner off
 
   web:
     name: Web (typecheck + lint + tests + build)
@@ -48,6 +51,7 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
@@ -66,3 +70,11 @@ jobs:
           docker run -d --name api -p 8000:8000 lungxray-api:ci
           for i in $(seq 1 30); do curl -fs localhost:8000/health && break; sleep 2; done
           curl -fs localhost:8000/health
+      - name: Container vulnerability scan (fails on fixable critical CVEs)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: lungxray-api:ci
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table

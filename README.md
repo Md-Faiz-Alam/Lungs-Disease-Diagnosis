@@ -6,6 +6,9 @@
 ![FastAPI](https://img.shields.io/badge/API-FastAPI-009688)
 ![React](https://img.shields.io/badge/Web-React%20%2B%20TypeScript-3178c6)
 ![Azure](https://img.shields.io/badge/Cloud-Azure-0078d4)
+[![CodeQL](https://github.com/Md-Faiz-Alam/Lungs-Disease-Diagnosis/actions/workflows/codeql.yml/badge.svg)](https://github.com/Md-Faiz-Alam/Lungs-Disease-Diagnosis/actions/workflows/codeql.yml)
+![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
 An end-to-end clinical decision-support system for chest X-rays. A model classifies frontal radiographs
 as **COVID-19, Normal or Pneumonia** with a **calibrated** confidence, a **"refer to a radiologist"**
@@ -121,7 +124,7 @@ A React + TypeScript single-page app ([`web/`](web/)) backed by the FastAPI `/ap
 | **PDF report** | Structured report: triage, calibrated probabilities, image + heatmap, review, model limitations. |
 | **Audit log** | Every upload, view, review, download and deletion, per user. |
 | **Model & validation page** | Live metrics from the deployed model bundle, calibration explained, known limitations. |
-| **Security** | Microsoft Entra ID (MSAL, PKCE), JWT validation in the API, per-clinician data isolation, CSP/HSTS. |
+| **Security** | Microsoft Entra ID (MSAL, PKCE), JWT validation in the API, per-clinician data isolation, CSP/HSTS. In the public demo each browser gets its own private, anonymous workspace, and model inference is rate-limited per client. |
 
 Tooling: Vite, React 19, TanStack Query, Tailwind CSS, Vitest + Testing Library, oxlint. Pages are
 lazy-loaded and the sign-in library is split into its own chunk.
@@ -167,9 +170,12 @@ security table, setup and operations: **[docs/azure-deployment.md](docs/azure-de
   limits, optional API key, batch endpoint and Prometheus `/metrics`.
 - **Monitoring**: every prediction is logged, and `lungxray drift` computes the Population Stability
   Index of live inputs and confidence against the training reference.
-- **Engineering**: typed config (pydantic + YAML + CLI overrides), 38 pytest tests (including an
-  end-to-end train→serve run, DICOM de-identification, JWT validation and cross-user isolation),
-  Vitest front-end tests, CI/CD with a quality gate, Docker, and ONNX export with a parity check.
+- **Engineering**: typed config (pydantic + YAML + CLI overrides), 44 pytest tests at 90% coverage
+  (enforced ≥ 88% in CI), including an end-to-end train→serve run, DICOM de-identification, JWT
+  validation, cross-user isolation, rate limiting and the promotion gate. Also Vitest front-end tests,
+  locked dependencies for reproducible images, and ONNX export with a parity check.
+- **Security automation**: CodeQL static analysis, pip-audit and npm audit, Trivy container scanning,
+  weekly Dependabot updates, pre-commit hooks, and a [security policy](SECURITY.md).
 
 ## Quickstart
 
@@ -248,4 +254,4 @@ notebook/Experiment.ipynb    original exploratory notebook (v0 baseline)
 
 ## License
 
-MIT. The dataset is subject to its own Kaggle license.
+[MIT](LICENSE). The dataset is subject to its own Kaggle license.
