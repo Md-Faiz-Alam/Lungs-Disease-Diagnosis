@@ -9,7 +9,7 @@ automatically on every push to `main` ([`.github/workflows/deploy.yml`](../.gith
 flowchart LR
     U[Clinician browser] -->|HTTPS| SWA[Azure Static Web Apps<br/>React SPA, CSP + HSTS]
     U -->|Sign in, PKCE| ENTRA[Microsoft Entra ID]
-    U -->|HTTPS + bearer token| CA[Azure Container Apps<br/>FastAPI + PyTorch model<br/>scale 0-3]
+    U -->|HTTPS + bearer token| CA[Azure Container Apps<br/>FastAPI + PyTorch model<br/>scale 0-1]
     CA -->|validates JWT via JWKS| ENTRA
     CA -->|managed identity| BLOB[(Blob Storage<br/>images, 30-day retention)]
     CA -->|managed identity| TABLE[(Table Storage<br/>studies + audit log)]
@@ -27,7 +27,7 @@ flowchart LR
 | Least privilege | The deploy identity is `Contributor` on one resource group only, plus `Role Based Access Control Administrator` with an **ABAC condition** that lets it grant only `Storage Blob Data Contributor` and `Storage Table Data Contributor`. The federated credential accepts tokens only from this repo's `production` environment. |
 | User authentication | Microsoft Entra ID with the SPA authorization-code flow + PKCE (no client secret). The API validates the token signature against the tenant JWKS, plus issuer, audience, expiry and the `Studies.ReadWrite` scope. |
 | Data isolation | Studies are partitioned by the user's Entra object ID, so one clinician cannot read another's studies (tested). In demo mode each browser gets a random anonymous workspace (`X-Demo-Session` UUID), so public visitors never see each other's uploads. |
-| Abuse protection | Model inference is rate-limited per client IP (default 30 per 10 minutes, `RATE_LIMIT_INFERENCE`). Oversized uploads are rejected from `Content-Length` before the body is read. Replicas are capped at 3. Every response carries an `X-Request-ID` for tracing. |
+| Abuse protection | Model inference is rate-limited per client IP (default 30 per 10 minutes, `RATE_LIMIT_INFERENCE`). Oversized uploads are rejected from `Content-Length` before the body is read. Replicas are capped at 1 (`maxReplicas` in `main.bicep`), which bounds worst-case cost and keeps the per-replica rate limit exact. Every response carries an `X-Request-ID` for tracing. |
 | Patient data | DICOM is de-identified on receipt: only pixel data and an allow-list of technical tags are kept, and the original file is never stored. Images are auto-deleted after 30 days (lifecycle policy). Blob soft delete lasts 7 days. Storage uses double encryption at rest and TLS 1.2+. |
 | Auditability | Every upload, view, review, report download and deletion is written to an append-only audit table. |
 | Web hardening | Content-Security-Policy, HSTS, `X-Frame-Options: DENY`, `nosniff`, no-referrer. Tokens are kept in `sessionStorage` (cleared when the tab closes on shared workstations). API responses are `Cache-Control: no-store`. |

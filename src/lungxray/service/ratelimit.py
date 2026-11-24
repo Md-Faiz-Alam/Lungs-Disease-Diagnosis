@@ -1,7 +1,8 @@
 """In-memory sliding-window rate limiting for the expensive (model inference) endpoints.
 
-Per replica, which is enough to stop scripted abuse of a public demo; Container Apps caps replicas
-at 3, so the global ceiling is bounded. A shared store (e.g. Redis) would be the next step at scale.
+Kept in memory per replica, which is enough to stop scripted abuse of a public demo. The deployment
+runs at most one replica (``maxReplicas`` in infra/main.bicep), so the limit is exact. When scaling out,
+move the counters to a shared store such as Redis.
 """
 
 from __future__ import annotations

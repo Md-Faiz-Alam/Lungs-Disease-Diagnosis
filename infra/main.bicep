@@ -33,6 +33,11 @@ param entraTenantId string = ''
 @description('Audience of access tokens for the API, e.g. api://<api-app-client-id>.')
 param entraApiAudience string = ''
 
+@description('Upper bound on API replicas. 1 caps worst-case cost and keeps the per-replica rate limit exact; raise it for real production load.')
+@minValue(1)
+@maxValue(10)
+param maxReplicas int = 1
+
 @description('Days before study images are deleted automatically (data minimisation).')
 @minValue(1)
 param imageRetentionDays int = 30
@@ -244,7 +249,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
       ]
       scale: {
         minReplicas: 0 // scale to zero when idle: pay only while in use
-        maxReplicas: 3
+        maxReplicas: maxReplicas
         rules: [{ name: 'http', http: { metadata: { concurrentRequests: '10' } } }]
       }
     }
